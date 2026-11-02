@@ -1,0 +1,125 @@
+# Getting started
+
+This guide takes Pali from installation to a first successful recall.
+
+## Install
+
+Each release publishes the server as `pali-<target>` binaries for Linux x86_64
+and macOS, plus the VS Code extension as one VSIX per platform, on the project's
+releases page. The crate is not published to a registry.
+
+Or build the current source:
+
+```bash
+git clone https://github.com/cderivan/memory-mcp.git
+cd pali
+cargo install --path .
+```
+
+## Connect an MCP client
+
+Pali serves MCP over stdio: the client launches `pali serve` and writes
+JSON-RPC to its stdin, reading replies from its stdout. Memories are stored in
+`~/.memory-mcp`.
+
+```json
+{
+  "mcpServers": {
+    "memory": {
+      "command": "pali",
+      "args": ["serve"]
+    }
+  }
+}
+```
+
+The process owns a single connection. Logs go to stderr, and closing stdin ends
+the session, so each concurrent client starts its own process.
+
+Pali does not download its embedding model automatically — fetch
+BGE-small-en-v1.5 (about 130 MB) once before the first `pali serve`:
+
+```bash
+scripts/fetch-model.sh
+pali warmup  # verifies the files load correctly
+```
+
+`scripts/fetch-model.sh` writes to the default model directory (or
+`$PALI_MODEL_DIR` if set). See [Configuration](configuration.md) for the
+resolution order and how to point at a model fetched elsewhere.
+
+To use a different repository location, add the flag to the client's args:
+
+```json
+{
+  "mcpServers": {
+    "memory": {
+      "command": "pali",
+      "args": ["serve", "--repo-path", "/path/to/memories"]
+    }
+  }
+}
+```
+
+See [Configuration](configuration.md) for the complete runtime surface and
+[Client setup](clients.md) for client-specific locations and field names.
+
+## Install the VS Code extension
+
+In VS Code, the [Pali Memory extension](../README.md#install)
+registers the server for you: enabling the extension adds a `pali` MCP server
+built from the `pali.binPath`, `pali.repoPath`, `pali.remoteUrl`, and
+`pali.branch` settings, then starts it on demand. It also writes
+`.github/hooks/pali.json`, so Copilot recalls project memories at session
+start and captures a digest when the agent stops. VS Code may ask once to trust
+the server.
+
+## Store and retrieve a memory
+
+Ask the connected agent to call `remember`:
+
+```json
+{
+  "name": "postgres/connection-pool-timeout",
+  "content": "Under burst load, check whether checkout_timeout is lower than the slowest query.",
+  "tags": ["postgres", "debugging"],
+  "scope": "my-api"
+}
+```
+
+Then ask it to call `recall`:
+
+```json
+{
+  "query": "database connection failures during traffic spikes",
+  "scope": "my-api",
+  "limit": 5
+}
+```
+
+`recall` combines semantic and keyword rankings. Each result reports its
+`match_type`, a content snippet, and whether the snippet was truncated. Use
+`read` before acting on a truncated result.
+
+## Configure git sync
+
+Pali works without a remote. To share the repository across machines,
+configure a remote URL when starting the server:
+
+```bash
+PALI_REMOTE_URL=https://github.com/you/my-memories.git \
+pali serve
+```
+
+`ssh://` and scp-like `git@host:path` remotes work too and need no token:
+Pali uses a default key in `~/.ssh` or the running ssh-agent.
+
+For a private HTTPS remote, configure git credentials the usual way — a
+credential helper or a `~/.netrc` entry — or set `PALI_GIT_TOKEN` to a personal
+access token. Pali does not store tokens either way. The remote may also be an
+absolute path to a local or bare repository.
+
+The connected agent can then call the `sync` MCP tool. There is no standalone
+`pali sync` CLI subcommand.
+
+For per-scope remotes, continue with [Configuration](configuration.md).

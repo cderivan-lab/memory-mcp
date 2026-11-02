@@ -1,0 +1,21 @@
+# Tasks
+
+- [x] Remove HTTP CLI args from src/main.rs (--http, --port, --host)
+- [x] Remove k8s feature from Cargo.toml
+- [x] Remove axum, tower, tower-http dependencies
+- [x] Remove HTTP handlers from src/health.rs
+- [x] Keep SubsystemReporter in src/health.rs for passive health
+- [x] Simplify src/main.rs to stdio-only serve + warmup
+- [x] Remove HTTP session handling from src/server.rs
+- [x] Remove HTTP/SSE transport code from src/server.rs
+- [x] Update Dockerfile/Dockerfile.ci (remove HTTP port, HF_HOME, k8s feature)
+- [x] Update docs/deployment.md (remove k8s/HTTP sections)
+- [x] Update docs/configuration.md (remove HTTP config)
+- [x] Update docs/security.md (remove TLS sections)
+- [x] Update docs/architecture.md (simplify transport diagram)
+- [x] Update README.md (remove HTTP usage, Docker HTTP examples)
+- [x] Add ADR-0047 for stdio-only decision
+- [x] Archive k8s/oauth HTTP openspec changes
+- [x] Run cargo check
+- [x] Run cargo test
+- [x] Verify Docker build

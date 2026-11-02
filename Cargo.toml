@@ -1,0 +1,13 @@
+# Workspace glue only. The VS Code extension at the repository root is the
+# product; the server crate lives in pali and is built as an input to
+# the extension (`npm run build:binary` stages it into out/bin/).
+[workspace]
+members = ["pali"]
+resolver = "3"
+
+# Release binaries ship inside the extension, so optimise hard.
+# Profiles are only allowed in the workspace root manifest.
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1

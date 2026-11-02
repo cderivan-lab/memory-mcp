@@ -1,0 +1,7 @@
+{
+  "stepAgents": {},
+  "autonomyLevel": "assisted",
+  "reviewGate": {
+    "mode": "human-required"
+  }
+}
