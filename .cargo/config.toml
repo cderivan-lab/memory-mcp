@@ -1,0 +1,12 @@
+# gemm-common 0.19 (pulled in by candle-core) annotates its NEON fp16 helpers
+# with `#[target_feature(enable = "fp16")]`, but the inline assembly they emit
+# (`fmla v0.8h, ...`) needs the *fullfp16* feature. Baseline
+# aarch64-unknown-linux-gnu enables neither, so any aarch64 Linux build fails
+# with "instruction requires: fullfp16" while compiling gemm-common.
+#
+# Enabling the feature for this target fixes the assembly. It also means the
+# resulting aarch64 Linux build expects ARMv8.2-FP16 hardware (Cortex-A76 and
+# newer, such as the Raspberry Pi 5). Revisit when upstream gates the asm
+# properly, and drop this block then.
+[target.aarch64-unknown-linux-gnu]
+rustflags = ["-C", "target-feature=+fullfp16"]

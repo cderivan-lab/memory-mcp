@@ -1,0 +1,49 @@
+{
+  "compilerOptions": {
+    "allowJs": false,
+    "allowSyntheticDefaultImports": true,
+    "composite": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "inlineSourceMap": true,
+    "inlineSources": true,
+    "isolatedModules": true,
+    "lib": [
+      "ES2025"
+    ],
+    "module": "CommonJS",
+    "outDir": "out",
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitAny": true,
+    "noImplicitReturns": true,
+    "noImplicitThis": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "removeComments": true,
+    "resolveJsonModule": true,
+    "rootDir": "src",
+    "skipLibCheck": true,
+    "strict": true,
+    "strictBindCallApply": true,
+    "strictFunctionTypes": true,
+    "strictNullChecks": true,
+    "strictPropertyInitialization": true,
+    "target": "ES2025",
+    "types": [
+      "vscode",
+      "node"
+    ],
+    "useDefineForClassFields": true
+  },
+  "exclude": [
+    "node_modules",
+    "out",
+    "dist"
+  ],
+  "include": [
+    "src"
+  ],
+  "files": [
+    "src/model-manifest.json"
+  ]
+}

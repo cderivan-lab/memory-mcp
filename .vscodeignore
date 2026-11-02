@@ -1,0 +1,46 @@
+.vscode/**
+.github/**
+.husky/**
+.cargo/**
+.codegraph/**
+.gitignore
+pali/**
+.vscode-test/**
+# The server crate is a build input, not extension content: only the staged
+# binary under out/bin/ ships.
+target/**
+docs/**
+models/**
+openspec/**
+# Test suites and dev-only config are not extension content.
+.config/**
+hooks/test/**
+.githooks/**
+test/**
+scripts/**
+src/**
+out/**/*.map
+out/**/*.d.ts
+out/**/*.d.ts.map
+out/test/**
+*.ts
+tsconfig.json
+tsconfig.tsbuildinfo
+Cargo.toml
+Cargo.lock
+deny.toml
+clippy.toml
+.clippy.toml
+AGENTS.md
+CLAUDE.md
+CONTRIBUTING.md
+DESIGN.md
+ROADMAP.md
+TODO.md
+node_modules/**/README.md
+node_modules/**/CHANGELOG.md
+node_modules/**/LICENSE*
+**/*.vsix
+.DS_Store
+test-resources/**
+.e2e-ui/**

@@ -1,0 +1,6 @@
+[test-groups.embedding]
+max-threads = 1
+
+[[profile.default.overrides]]
+filter = "binary(candle_embedding)"
+test-group = "embedding"

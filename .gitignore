@@ -1,0 +1,30 @@
+.codegraph/
+/target
+# Local MCP client config (machine-specific command path and remote host).
+.vscode/mcp.json
+# Written by the extension's hook installer with absolute local paths.
+.github/hooks/pali.json
+.memory-mcp-index/
+# Embedding model weights (~127 MB) — fetched with scripts/fetch-model.sh or
+# auto-installed by the VS Code extension (ADR-0049). The remote enforces a
+# 100 MB per-file limit and has no Git LFS, so the weights must not be committed.
+models/bge-small-en-v1.5/model.safetensors
+.serena/
+.claude/
+out/
+data/
+node_modules/
+mutants.out/
+.openspec-ui/
+**/node_modules/**
+*.vsix
+.DS_Store
+.vscode-test/
+tsconfig.tsbuildinfo
+
+
+# vscode-extension-tester downloads its VS Code and ChromeDriver here.
+test-resources/
+
+# Generated stub binary and settings for the UI e2e run.
+.e2e-ui/
