@@ -14,7 +14,6 @@ pub mod embedding;
 pub mod error;
 /// Filesystem utilities — atomic writes, path helpers, crash-safe temp-file-then-rename.
 pub mod fs_util;
-mod git_read;
 /// Passive subsystem health recording.
 pub mod health;
 /// HNSW vector index for approximate nearest-neighbour search.
@@ -25,8 +24,6 @@ pub mod recall_log;
 pub mod repo;
 /// Routes memory operations to scope-specific git repositories.
 pub mod repo_router;
-/// Repository scanner — git-aware inventory, security report, and manifest.
-pub mod scanner;
 /// Hybrid retrieval — semantic + BM25 lexical search merged via rank fusion.
 pub mod search;
 /// MCP server implementation — tool handlers for the memory protocol.
@@ -36,6 +33,3 @@ pub mod server;
 pub(crate) mod test_log;
 /// Domain types: memories, scopes, metadata, validation, and application state.
 pub mod types;
-/// Workspace bootstrap — scan a directory, index its text files, and write a
-/// chunk dataset.
-pub mod workspace;

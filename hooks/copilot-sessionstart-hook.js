@@ -2,7 +2,8 @@
 /**
  * Copilot CLI / VS Code SessionStart hook — pali (memory-mcp) edition.
  *
- * Recalls the project's memories straight from the
+ * Replaces the Hindsight version: instead of asking a Hindsight bank for
+ * curated knowledge pages, it recalls the project's memories straight from the
  * pali store (scope = git project name) and injects them as additionalContext.
  *
  * Input  (stdin) : { sessionId, cwd }

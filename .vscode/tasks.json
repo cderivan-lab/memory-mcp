@@ -4,19 +4,8 @@
 	"version": "2.0.0",
 	"tasks": [
 		{
-			"label": "Install dependencies",
-			"type": "shell",
-			"command": "npm ci",
-			"inAgents": true,
-			"runOptions": {
-				"runOn": "worktreeCreated"
-			}
-		},
-		{
-			"label": "Watch extension build",
 			"type": "npm",
 			"script": "watch",
-			"inAgents": true,
 			"problemMatcher": "$tsc-watch",
 			"isBackground": true,
 			"presentation": {

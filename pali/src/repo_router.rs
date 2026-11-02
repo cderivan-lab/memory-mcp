@@ -338,11 +338,10 @@ impl RepoRouter {
             );
             dest_repo.save_memory(&dest).await?;
             if let Err(e) = source_repo.delete_memory(source_name, source_scope).await {
-                // Inline captures keep this one string argument, so rustfmt
-                // versions that disagree about wrapping multi-arg calls cannot
-                // reformat it differently.
                 warn!(
-                    "cross-repo move: failed to delete source {source_name} after successful save to destination — data exists in both repos: {e}"
+                    "cross-repo move: failed to delete source {} after successful save to destination — data exists in both repos: {}",
+                    source_name,
+                    e
                 );
                 return Err(e);
             }
@@ -1766,76 +1765,6 @@ mod coverage_tests {
                 .await
                 .is_err(),
             "source must be removed from the default repo"
-        );
-    }
-
-    /// Regression: a source delete that fails *after* the destination save
-    /// succeeded must fail the move. Returning `Ok` here would tell the caller
-    /// a move happened while the data now sits in both repos.
-    ///
-    /// The failure is injected with a `.git/index.lock`, the state a crashed
-    /// git process leaves behind: reads still work, but the delete cannot
-    /// write the index that records the removal.
-    #[tokio::test]
-    async fn cross_repo_move_reports_source_delete_failure() {
-        let default_dir = tempfile::tempdir().expect("default dir");
-        let work_dir = tempfile::tempdir().expect("work dir");
-        let default_repo =
-            Arc::new(MemoryRepo::init_or_open(default_dir.path(), None).expect("repo"));
-        let work_repo = Arc::new(MemoryRepo::init_or_open(work_dir.path(), None).expect("repo"));
-        let router = RepoRouter {
-            default_repo: Arc::clone(&default_repo),
-            routes: vec![ScopeRoute {
-                prefix: "work".to_string(),
-                repo: Arc::clone(&work_repo),
-                branch: None,
-            }],
-            sync_reporter: None,
-            git_reporter: None,
-        };
-
-        let source = crate::types::Memory::new(
-            "stuck",
-            "must not vanish silently",
-            MemoryMetadata::new(Scope::Root, vec![], None),
-        )
-        .expect("memory");
-        default_repo
-            .save_memory(&source)
-            .await
-            .expect("save source");
-
-        std::fs::write(default_dir.path().join(".git/index.lock"), b"").expect("inject index lock");
-
-        let dest_scope = Scope::Path(ScopePath::new("work").expect("scope"));
-        let dest_name = MemoryName::new("arrived").expect("name");
-        let err = router
-            .move_memory("stuck", &Scope::Root, &dest_name, &dest_scope)
-            .await
-            .expect_err("a failed source delete must fail the move");
-
-        assert!(
-            matches!(err, MemoryError::Git(_)),
-            "expected the git index failure to propagate, got: {err:?}"
-        );
-
-        // The destination half already committed before the source delete ran,
-        // so the error is the only signal that both repos now hold the memory.
-        assert!(
-            work_repo.read_memory("arrived", &dest_scope).await.is_ok(),
-            "destination save happens before the source delete"
-        );
-        let source_repo = git2::Repository::open(default_dir.path()).expect("open source repo");
-        let source_head = source_repo
-            .head()
-            .expect("source head")
-            .peel_to_tree()
-            .expect("source tree");
-        assert!(
-            source_head
-                .get_path(std::path::Path::new("global/stuck.md"))
-                .is_ok(),
-            "the source deletion was never committed, so HEAD still tracks it"
         );
     }
 }

@@ -41,13 +41,6 @@ enum Command {
     Warmup(WarmupArgs),
     /// Show recall precision statistics by distance bucket
     RecallStats(RecallStatsArgs),
-    /// Bootstrap a workspace: scan text files, report potential secrets, and
-    /// write the git-aware manifest and insights when it is a repository
-    Scan(ScanArgs),
-    /// Bootstrap a workspace: embed scanned files into a local vector index
-    Index(IndexArgs),
-    /// Bootstrap a workspace: write scanned chunks as a JSONL dataset
-    Dataset(DatasetArgs),
 }
 
 #[derive(Args)]
@@ -57,8 +50,8 @@ struct ServeArgs {
     repo_path: String,
 
     /// Path to the TOML config file for per-scope remote mapping.
-    /// Defaults to `memory-mcp/config.toml` under the platform config
-    /// directory. Set to an empty string to disable config loading.
+    /// Defaults to `~/.config/memory-mcp/config.toml`. Set to an empty
+    /// string to disable config loading.
     #[arg(long, env = "PALI_CONFIG")]
     config: Option<String>,
 
@@ -103,70 +96,6 @@ struct RecallStatsArgs {
     /// Path to the index directory (default: ~/.memory-mcp/.memory-mcp-index).
     #[arg(long)]
     index_dir: Option<String>,
-}
-
-#[derive(Args)]
-struct ScanArgs {
-    #[command(flatten)]
-    workspace: WorkspaceArgs,
-
-    /// Record per-line commit IDs from git blame. Only commit IDs and line
-    /// numbers are written — never author names, emails, or source lines.
-    #[arg(long, default_value_t = false)]
-    blame: bool,
-
-    /// Maximum size in bytes of an included file.
-    #[arg(long, default_value_t = 2 * 1024 * 1024, value_parser = parse_nonzero_u64)]
-    max_file_bytes: u64,
-
-    /// Save the insight digest as one memory in a pali memory repository.
-    #[arg(long, default_value_t = false)]
-    save_memories: bool,
-
-    /// Memory repository for --save-memories. Created when it does not exist.
-    #[arg(long, default_value = "~/.memory-mcp")]
-    repo_path: String,
-
-    /// Memory scope for --save-memories. Defaults to the workspace directory
-    /// name.
-    #[arg(long)]
-    scope: Option<String>,
-}
-
-#[derive(Args)]
-struct IndexArgs {
-    #[command(flatten)]
-    workspace: WorkspaceArgs,
-
-    #[command(flatten)]
-    embed: EmbedArgs,
-}
-
-#[derive(Args)]
-struct DatasetArgs {
-    #[command(flatten)]
-    workspace: WorkspaceArgs,
-
-    /// Dataset output path. Relative paths resolve against the workspace root;
-    /// the default is `<artifacts>/dataset.jsonl`.
-    #[arg(long)]
-    output: Option<PathBuf>,
-}
-
-#[derive(Args)]
-struct WorkspaceArgs {
-    /// Workspace directory to bootstrap.
-    #[arg(long, default_value = ".")]
-    workspace: PathBuf,
-
-    /// Bound the number of files scanned, for a sample run.
-    #[arg(long, value_parser = parse_nonzero_usize)]
-    limit: Option<usize>,
-
-    /// Directory for scan, index, and dataset artifacts. Relative paths
-    /// resolve against the workspace root; the default is `<workspace>/.pali`.
-    #[arg(long)]
-    artifacts: Option<PathBuf>,
 }
 
 #[derive(Args)]
@@ -241,15 +170,6 @@ async fn main() -> anyhow::Result<()> {
         Some(Command::RecallStats(args)) => {
             run_recall_stats(args)?;
         }
-        Some(Command::Scan(args)) => {
-            run_scan(args).await?;
-        }
-        Some(Command::Index(args)) => {
-            run_index(args).await?;
-        }
-        Some(Command::Dataset(args)) => {
-            run_dataset(args)?;
-        }
     }
 
     Ok(())
@@ -296,7 +216,7 @@ fn reject_legacy_environment() -> anyhow::Result<()> {
 fn legacy_environment_replacement(name: &std::ffi::OsStr) -> Option<Option<String>> {
     use std::os::unix::ffi::OsStrExt as _;
 
-    const LEGACY_PREFIX: &[u8] = b"MEMORY_MCP_";
+    const LEGACY_PREFIX: &[u8] = &b"MEMORY_MCP_"[..];
 
     let bytes = name.as_bytes();
     let prefix = bytes.get(..LEGACY_PREFIX.len())?;
@@ -605,102 +525,6 @@ async fn serve_stdio(state: Arc<AppState>) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Build workspace options from the shared workspace flags.
-fn workspace_options(args: &WorkspaceArgs) -> anyhow::Result<pali::workspace::ScanOptions> {
-    let mut options = pali::workspace::ScanOptions::new(args.workspace.clone())?;
-    if let Some(limit) = args.limit {
-        options = options.with_limit(limit);
-    }
-    if let Some(artifacts) = &args.artifacts {
-        options = options.with_artifacts(artifacts);
-    }
-    Ok(options)
-}
-
-/// Scan the workspace and print its summary.
-///
-/// The workspace's own git repository drives the scan when there is one: that
-/// pass writes the security report, the manifest, and the codebase insights.
-/// A plain directory still gets the file and secret report from the workspace
-/// scanner. `--save-memories` commits the insight digest, so it needs a
-/// repository.
-async fn run_scan(args: ScanArgs) -> anyhow::Result<()> {
-    let mut options = pali::scanner::RepositoryScanOptions::new(args.workspace.workspace.clone())?
-        .with_max_file_bytes(args.max_file_bytes)
-        .with_blame(args.blame);
-    if let Some(limit) = args.workspace.limit {
-        options = options.with_limit(limit);
-    }
-    if let Some(artifacts) = &args.workspace.artifacts {
-        options = options.with_artifacts(artifacts);
-    }
-
-    let summary = match pali::scanner::scan_repositories(&options) {
-        Ok(summary) => summary,
-        Err(pali::error::MemoryError::InvalidInput { .. }) if !args.save_memories => {
-            // Not a git repository: fall back to the plain workspace scan.
-            let plain = pali::workspace::scan(&workspace_options(&args.workspace)?)?;
-            println!("{}", serde_json::to_string_pretty(&plain)?);
-            return Ok(());
-        }
-        Err(pali::error::MemoryError::InvalidInput { .. }) => {
-            anyhow::bail!(
-                "--save-memories needs a git repository; {} is not one",
-                options.root().display()
-            );
-        }
-        Err(error) => return Err(error.into()),
-    };
-
-    if args.save_memories {
-        let repo_path = expand_path(&args.repo_path)?;
-        let repo_path = pali::fs_util::canonicalize_allow_missing(&repo_path)?;
-        let scope = args
-            .scope
-            .unwrap_or_else(|| pali::scanner::default_scope(options.root()));
-        pali::scanner::save_insights(&repo_path, &scope, &summary.insights_markdown)
-            .await
-            .with_context(|| {
-                format!(
-                    "failed to save codebase insights to {}",
-                    repo_path.display()
-                )
-            })?;
-        tracing::info!(
-            scope,
-            memory = pali::scanner::INSIGHTS_MEMORY_NAME,
-            "saved codebase insights"
-        );
-    }
-
-    println!("{}", serde_json::to_string_pretty(&summary)?);
-    Ok(())
-}
-
-/// Embed a workspace into `<artifacts>/index` and print its summary.
-async fn run_index(args: IndexArgs) -> anyhow::Result<()> {
-    use pali::health::SubsystemReporter;
-
-    let options = workspace_options(&args.workspace)?;
-    let embedding = CandleEmbeddingEngine::new(
-        std::time::Duration::from_secs(args.embed.embed_timeout_secs),
-        args.embed.embed_queue_size,
-        SubsystemReporter::new(),
-    )
-    .context("failed to init embedding engine")?;
-    let summary = pali::workspace::index(&options, &embedding).await?;
-    println!("{}", serde_json::to_string_pretty(&summary)?);
-    Ok(())
-}
-
-/// Write a workspace chunk dataset and print its summary.
-fn run_dataset(args: DatasetArgs) -> anyhow::Result<()> {
-    let summary =
-        pali::workspace::dataset(&workspace_options(&args.workspace)?, args.output.as_deref())?;
-    println!("{}", serde_json::to_string_pretty(&summary)?);
-    Ok(())
-}
-
 /// Print recall precision statistics bucketed by distance range.
 fn run_recall_stats(args: RecallStatsArgs) -> anyhow::Result<()> {
     // Resolve the recall log path: explicit flag > env var (handled by clap) >
@@ -996,72 +820,5 @@ mod tests {
             msg.contains("not supported"),
             "error should mention unsupported: {msg}"
         );
-    }
-}
-
-#[cfg(test)]
-mod cli_tests {
-    use super::*;
-    use clap::Parser;
-
-    fn scan_args(extra: &[&str]) -> ScanArgs {
-        let mut argv = vec!["pali", "scan"];
-        argv.extend_from_slice(extra);
-        match Cli::try_parse_from(argv).expect("scan must parse").command {
-            Some(Command::Scan(args)) => args,
-            _ => panic!("expected the scan subcommand"),
-        }
-    }
-
-    #[test]
-    fn scan_defaults_keep_the_plain_workspace_scan() {
-        let args = scan_args(&[]);
-        assert!(!args.blame);
-        assert!(!args.save_memories);
-        assert_eq!(args.max_file_bytes, 2 * 1024 * 1024);
-        assert_eq!(args.repo_path, "~/.memory-mcp");
-        assert!(args.scope.is_none());
-        assert_eq!(args.workspace.workspace, PathBuf::from("."));
-    }
-
-    #[test]
-    fn scan_carries_the_repository_flags_it_folded_in() {
-        let args = scan_args(&[
-            "--workspace",
-            "/w",
-            "--blame",
-            "--max-file-bytes",
-            "1048576",
-            "--save-memories",
-            "--repo-path",
-            "/mem",
-            "--scope",
-            "team",
-            "--limit",
-            "5",
-        ]);
-        assert!(args.blame);
-        assert!(args.save_memories);
-        assert_eq!(args.max_file_bytes, 1_048_576);
-        assert_eq!(args.repo_path, "/mem");
-        assert_eq!(args.scope.as_deref(), Some("team"));
-        assert_eq!(args.workspace.limit, Some(5));
-        assert_eq!(args.workspace.workspace, PathBuf::from("/w"));
-    }
-
-    #[test]
-    fn scan_rejects_a_zero_file_size_bound() {
-        let error = match Cli::try_parse_from(["pali", "scan", "--max-file-bytes", "0"]) {
-            Ok(_) => panic!("a zero bound must be rejected"),
-            Err(error) => error,
-        };
-        assert!(error.to_string().contains("max-file-bytes"), "{error}");
-    }
-
-    #[test]
-    fn the_scan_repos_subcommand_is_gone() {
-        // Regression: scan-repos was folded into scan. Leaving the variant
-        // alive would let a caller keep the old two-command split.
-        assert!(Cli::try_parse_from(["pali", "scan-repos"]).is_err());
     }
 }

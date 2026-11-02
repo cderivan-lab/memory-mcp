@@ -5,49 +5,24 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as zlib from "node:zlib";
 import { log } from "./logger";
-import modelManifest from "../model-manifest.json";
 
-// Binaries and the embedding model are published by the project's GitHub
-// repository. `releases/latest` is GitHub's stable alias for the newest
-// release, so a download needs no version lookup. Downloads carry the HTTPS
-// token the user stored via `pali.setToken` as a Bearer credential; a private
-// repository needs it, a public one ignores it.
-//
-// A token cannot authenticate the browser download URL
-// (`github.com/<owner>/<repo>/releases/download/...`): a private repository
-// answers 404 even for a valid token. The release asset API is the
-// token-authenticated path, so `installLatest` resolves and downloads the
-// asset through it directly. Raw files have the same problem on
-// `github.com/<repo>/raw/...`, where the cross-origin redirect drops the
-// Authorization header, so the model archive is fetched from
-// `raw.githubusercontent.com` directly.
+// Binaries and the embedding model are published by the project's
+// GitHub Enterprise instance. `releases/latest` is GitHub's stable alias for
+// the newest release, so a download needs no version lookup. The repo is
+// private, so downloads carry the HTTPS token the user stored via
+// `pali.setToken` as a Bearer credential.
 const GITHUB_BASE_URL = "https://github.com";
-/**
- * REST host. It is not `${GITHUB_BASE_URL}/api/v3` (GitHub Enterprise's
- * path): github.com serves its API from `api.github.com/repos/<owner>/<repo>`,
- * and the `/api/v3` prefix there answers 404, which made every update check
- * come back empty.
- */
-const GITHUB_API_URL = "https://api.github.com";
-const PROJECT_PATH = "cderivan/memory-mcp";
+const PROJECT_PATH = "clebsonderivan/memory-mcp";
 /** Release download prefix. Asset names are per-target; see releaseAssetName. */
 const RELEASE_BASE_URL = `${GITHUB_BASE_URL}/${PROJECT_PATH}/releases`;
 /** Project REST root, used only to read the latest release's tag. */
-const PROJECT_API_URL = `${GITHUB_API_URL}/repos/${PROJECT_PATH}`;
+const PROJECT_API_URL = `${GITHUB_BASE_URL}/api/v3/repos/${PROJECT_PATH}`;
 
-/**
- * Embedding model layout, read from `model-manifest.json`. The crate embeds the
- * same file (`pali/src/embedding/candle.rs`), so the directory this installer
- * writes to and the directory the server looks in cannot drift apart.
- */
-export const MODEL_DIR_NAME = modelManifest.dir;
-/** Every file the model loader requires, in manifest order. */
-export const MODEL_FILES = [
-  modelManifest.files.config,
-  modelManifest.files.tokenizer,
-  modelManifest.files.weights,
-];
-/** Project ref that carries the `models/<dir>.zip` archive. */
+/** Embedding model the server loads; mirrors MODEL_ID in src/embedding. */
+export const MODEL_ID = "bge-small-en-v1.5";
+/** Every file the model loader requires (src/embedding/candle.rs). */
+export const MODEL_FILES = ["config.json", "tokenizer.json", "model.safetensors"];
+/** Project ref that carries the `models/<MODEL_ID>.zip` archive. */
 const MODEL_REF = "main";
 
 // Log lines flow through the shared logger (src/utils/logger.ts): the
@@ -89,6 +64,7 @@ export async function isExecutable(file: string): Promise<boolean> {
     const st = await fs.stat(file);
     if (!st.isFile()) return false;
     if (process.platform === "win32") return true;
+    // eslint-disable-next-line no-bitwise
     return (st.mode & 0o111) !== 0;
   } catch {
     return false;
@@ -183,20 +159,20 @@ function readBinaryFromTar(tar: Buffer): Buffer | null {
     const type = tar[off + 156];
     if (type === 0x30) {
       const size =
-        Number.parseInt(
+        parseInt(
           tar
             .toString("utf8", off + 124, off + 136)
-            .split("\0")[0]
+            .replace(/\0.*$/, "")
             .trim(),
           8,
         ) || 0;
       return Buffer.from(tar.subarray(off + 512, off + 512 + size));
     }
     const size =
-      Number.parseInt(
+      parseInt(
         tar
           .toString("utf8", off + 124, off + 136)
-          .split("\0")[0]
+          .replace(/\0.*$/, "")
           .trim(),
         8,
       ) || 0;
@@ -226,9 +202,7 @@ export async function extractBinaryFromArchive(
   await fs.writeFile(dest, bytes);
   // The archive carries no permission bits, so restore the exec bit the
   // server needs to start (a no-op for the read-only bit on Windows).
-  // Use 0o700 rather than 0o755 so the binary stays owner-only: the server
-  // runs as the installing user, and world-readable binaries invite tampering.
-  await fs.chmod(dest, 0o700);
+  await fs.chmod(dest, 0o755);
   log.success(`extracted ${bytes.length} bytes of ${binaryName()}`);
   return dest;
 }
@@ -257,7 +231,7 @@ function isHtmlHead(head: Buffer): boolean {
 
 /** Directory holding the model files; `PALI_MODEL_DIR` points the server here. */
 export function modelDir(storagePath: string): string {
-  return path.join(storagePath, "models", MODEL_DIR_NAME);
+  return path.join(storagePath, "models", MODEL_ID);
 }
 
 /**
@@ -282,33 +256,6 @@ export async function resolveModelDir(storagePath: string): Promise<string | nul
     return null;
   }
   return dir;
-}
-
-/**
- * Explain why a directory cannot serve as `PALI_MODEL_DIR`, or return
- * undefined when every required model file is present. An empty file is not
- * usable either: the server loads the weights at startup, so a truncated
- * install would fail there instead.
- */
-export async function modelPathProblem(dir: string): Promise<string | undefined> {
-  try {
-    const entry = await fs.stat(dir);
-    if (!entry.isDirectory()) return `"${dir}" is not a directory`;
-  } catch {
-    return `"${dir}" does not exist`;
-  }
-
-  const missing: string[] = [];
-  for (const name of MODEL_FILES) {
-    try {
-      const st = await fs.stat(path.join(dir, name));
-      if (!st.isFile() || st.size === 0) missing.push(name);
-    } catch {
-      missing.push(name);
-    }
-  }
-  if (missing.length === 0) return undefined;
-  return `"${dir}" is missing ${missing.join(", ")}`;
 }
 
 /** One Git LFS pointer, as committed instead of the file body. */
@@ -429,52 +376,18 @@ function authHeaders(token?: string | null): Record<string, string> {
   return trimmed ? { Authorization: `Bearer ${trimmed}` } : {};
 }
 
-/** One downloadable asset on a release, as the REST API reports it. */
-interface ReleaseAsset {
-  name?: string;
-  url?: string;
-}
-
-/** The release fields this module reads. */
-interface ReleaseInfo {
-  tag_name?: string;
-  assets?: ReleaseAsset[];
-}
-
-/** Read the newest release, throwing with context when the API lookup fails. */
-async function fetchLatestRelease(token?: string | null): Promise<ReleaseInfo> {
+/** Read the newest release tag from the GitHub Enterprise API. */
+async function fetchLatestVersion(token?: string | null): Promise<string | null> {
   try {
     const response = await fetch(`${PROJECT_API_URL}/releases/latest`, {
       headers: authHeaders(token),
     });
-    if (!response.ok) {
-      throw new Error(`${response.status} ${response.statusText}`.trim());
-    }
-    return (await response.json()) as ReleaseInfo;
-  } catch (error) {
-    throw new Error(`Latest release API lookup failed: ${(error as Error).message}`);
-  }
-}
-
-/** Read the newest release tag from the GitHub REST API. */
-async function fetchLatestVersion(token?: string | null): Promise<string | null> {
-  try {
-    const release = await fetchLatestRelease(token);
+    if (!response.ok) return null;
+    const release = (await response.json()) as { tag_name?: string };
     return release.tag_name?.trim() || null;
   } catch {
     return null;
   }
-}
-
-/**
- * API URL of the named asset on the newest release, or null when the release
- * does not carry it. This is the documented download for a private
- * repository: the browser URL does not accept a token.
- */
-async function releaseAssetUrl(name: string, token?: string | null): Promise<string | null> {
-  const release = await fetchLatestRelease(token);
-  const asset = release?.assets?.find((entry) => entry.name === name && entry.url);
-  return asset?.url ?? null;
 }
 
 /** Read the full response body into memory, reporting byte progress. */
@@ -512,65 +425,18 @@ function validateArchiveBytes(bytes: Buffer, dest: string): void {
     log.error(`download of ${dest} returned an HTML login page, not an archive`);
     throw new Error(
       `The server returned a login page instead of the file for ${dest} ` +
-      "(the download was redirected to single sign-on).\n" +
-      'Run "Pali: Set HTTPS Token" and store a token with repo read access.',
+        "(the download was redirected to single sign-on).\n" +
+        'Run "Pali: Set HTTPS Token" and store a token with repo read access.',
     );
   }
   log.error(
     `download of ${dest} has unrecognized content ` +
-    `(starts ${bytes.subarray(0, 8).toString("hex")})`,
+      `(starts ${bytes.subarray(0, 8).toString("hex")})`,
   );
   throw new Error(
     `The downloaded file ${dest} is neither a zip nor a tar.gz archive. ` +
-    "The release asset may have moved; check the release page or retry.",
+      "The release asset may have moved; check the release page or retry.",
   );
-}
-
-/** A download the server answered with a non-success status. */
-class DownloadError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-  ) {
-    super(message);
-    this.name = "DownloadError";
-  }
-}
-
-/** Bytes of a failed response body kept for the error message. */
-const ERROR_SNIPPET_BYTES = 200;
-
-/**
- * Read a short, single-line excerpt of a failed response body, so the error
- * names the page the server actually returned (an SSO interstitial, a
- * permission-denied notice) instead of only its status code. Reads at most
- * ERROR_SNIPPET_BYTES and cancels the stream, so a multi-megabyte error page is
- * never buffered, and never throws: a body that is absent or already consumed
- * just yields the empty string.
- */
-async function readErrorSnippet(response: Response): Promise<string> {
-  if (!response.body) return "";
-  const reader = response.body.getReader();
-  try {
-    const chunks: Buffer[] = [];
-    let size = 0;
-    while (size < ERROR_SNIPPET_BYTES) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      chunks.push(Buffer.from(value));
-      size += value.byteLength;
-    }
-    return Buffer.concat(chunks)
-      .subarray(0, ERROR_SNIPPET_BYTES)
-      .toString("utf8")
-      .replace(/<[^>]+>/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-  } catch {
-    return "";
-  } finally {
-    await reader.cancel().catch(() => { });
-  }
 }
 
 /** Write a response body to `dest` atomically, reporting byte progress. */
@@ -582,23 +448,13 @@ async function streamToFile(
 ): Promise<void> {
   if (!response.ok || !response.body) {
     const base = `Server returned ${response.status} ${response.statusText} for ${response.url}`;
-    // A private repo answers 401/403 when no (or a bad) token was supplied;
-    // the browser download URL hides the repository behind a 404 instead.
-    let hint = "";
-    if (response.status === 401 || response.status === 403) {
-      hint = '\nRun "Pali: Set HTTPS Token" and store a token with repo read access.';
-    } else if (response.status === 404) {
-      hint =
-        "\nIf this repository is private, its downloads need a token with " +
-        'repo read access ("Pali: Set HTTPS Token").';
-    }
-    const snippet = await readErrorSnippet(response);
-    const detail = snippet ? `\nServer said: ${snippet}` : "";
-    log.error(
-      `${response.status} ${response.statusText} for ${response.url}` +
-      (snippet ? `: ${snippet}` : ""),
-    );
-    throw new DownloadError(base + hint + detail, response.status);
+    // A private repo answers 401/403 when no (or a bad) token was supplied.
+    const hint =
+      response.status === 401 || response.status === 403
+        ? '\nRun "Pali: Set HTTPS Token" and store a token with repo read access.'
+        : "";
+    log.error(`${response.status} ${response.statusText} for ${response.url}`);
+    throw new Error(base + hint);
   }
 
   const bytes = await readBody(response, onBytes);
@@ -615,17 +471,16 @@ async function downloadWithProgress(
   dest: string,
   onProgress: (fraction: number) => void,
   token?: string | null,
-  extraHeaders: Record<string, string> = {},
 ): Promise<void> {
   log.info(`downloading ${url}`);
   const tokenPresent = Boolean(authHeaders(token).Authorization);
   log.info(`authenticating with Bearer token: ${tokenPresent ? "yes" : "no"}`);
-  const response = await fetch(url, {
-    headers: { ...authHeaders(token), ...extraHeaders },
-  });
+  const response = await fetch(url, { headers: authHeaders(token) });
+  log.info(`downloading ${await response.text()}`);
+
   log.info(
     `server answered ${response.status} ${response.statusText} ` +
-    `(content-type: ${response.headers.get("content-type") || "unknown"})`,
+      `(content-type: ${response.headers.get("content-type") || "unknown"})`,
   );
   await streamToFile(
     response,
@@ -637,15 +492,9 @@ async function downloadWithProgress(
   );
 }
 
-/**
- * Raw URL for the model archive at the tracked ref.
- *
- * `raw.githubusercontent.com` rather than `github.com/<repo>/raw/...`: the
- * latter redirects, and the Authorization header is dropped on the
- * cross-origin hop, so a private repository could never authenticate it.
- */
+/** Raw URL for the model archive at the tracked ref (GitHub Enterprise). */
 function modelZipUrl(): string {
-  return `https://raw.githubusercontent.com/${PROJECT_PATH}/${MODEL_REF}/models/${MODEL_DIR_NAME}.zip`;
+  return `${GITHUB_BASE_URL}/${PROJECT_PATH}/raw/${MODEL_REF}/models/${MODEL_ID}.zip`;
 }
 
 /**
@@ -719,11 +568,11 @@ export async function installModel(ui: UI): Promise<string | null> {
   if (existing) return existing;
 
   const dir = modelDir(ui.storagePath);
-  const zipPath = path.join(dir, `${MODEL_DIR_NAME}.zip`);
-  log.info(`downloading model ${MODEL_DIR_NAME} from ${modelZipUrl()}`);
+  const zipPath = path.join(dir, `${MODEL_ID}.zip`);
+  log.info(`downloading model ${MODEL_ID} from ${modelZipUrl()}`);
   try {
     await fs.mkdir(dir, { recursive: true });
-    await ui.progress(`Downloading the ${MODEL_DIR_NAME} model...`, null, async (report) => {
+    await ui.progress(`Downloading the ${MODEL_ID} model...`, null, async (report) => {
       await downloadWithProgress(modelZipUrl(), zipPath, report, await ui.getToken?.());
       // The archive holds the three model files at its root, so extracting
       // it into the model dir lands them exactly where the loader looks.
@@ -732,13 +581,13 @@ export async function installModel(ui: UI): Promise<string | null> {
   } catch (error) {
     log.error(`model download failed: ${(error as Error).message}`);
     ui.error(
-      `Could not download the ${MODEL_DIR_NAME} model: ${(error as Error).message}\n` +
-      "Run scripts/fetch-model.sh and set PALI_MODEL_DIR instead.",
+      `Could not download the ${MODEL_ID} model: ${(error as Error).message}\n` +
+        "Run scripts/fetch-model.sh and set PALI_MODEL_DIR instead.",
     );
     return null;
   } finally {
     // Keep only the extracted files, not the archive.
-    await fs.rm(zipPath, { force: true }).catch(() => { });
+    await fs.rm(zipPath, { force: true }).catch(() => {});
   }
   return dir;
 }
@@ -769,12 +618,6 @@ export interface UI {
   ): Promise<T>;
   localize(message: string, ...args: Array<string | number | boolean>): string;
   /**
-   * Configured `pali.modelPath`, when the user set one. A usable directory
-   * suppresses the model download offer: the server starts on it, so asking
-   * to download a model would be wrong.
-   */
-  modelPath?: string;
-  /**
    * Called after an install finishes, so the host can re-resolve the server
    * inputs and restart it: an install is the moment a server that had nothing
    * to start with becomes startable, without waiting for the next activation.
@@ -782,7 +625,9 @@ export interface UI {
   installed?(): void;
   shouldReuse(release: string): Promise<boolean | undefined>;
   promptReload(message: string): Promise<void>;
+  showHelp(message: string, url: string): Promise<void>;
   promptUpdate(oldVersion: string, newVersion: string): Promise<void>;
+  promptInstall(version: string): Promise<void>;
 }
 
 /**
@@ -801,25 +646,12 @@ export interface PrepareResult {
  * model is not installed yet. Choosing "Later" (or dismissing the prompt)
  * leaves the model uninstalled for this session.
  */
-/**
- * The configured `pali.modelPath` when it holds every model file, else null.
- * An unusable path must not suppress the download offer: the server cannot
- * start on it, and the extension reports that problem separately.
- */
-async function usableConfiguredModel(ui: UI): Promise<string | null> {
-  const configured = ui.modelPath?.trim();
-  if (!configured) return null;
-  return (await modelPathProblem(configured)) === undefined ? configured : null;
-}
-
 async function provisionModel(ui: UI, offer: boolean): Promise<string | null> {
-  const configured = await usableConfiguredModel(ui);
-  if (configured) return configured;
   const installed = await resolveModelDir(ui.storagePath);
   if (installed || !offer) return installed;
 
   const download = await ui.choose(
-    `The ${MODEL_DIR_NAME} embedding model (about 130 MB) is not installed. Download it now?`,
+    `The ${MODEL_ID} embedding model (about 130 MB) is not installed. Download it now?`,
     ["Download now", "Later"],
   );
   if (download !== "Download now") return null;
@@ -882,7 +714,7 @@ export async function prepare(ui: UI, autoCheck: boolean): Promise<PrepareResult
   // and its update prompts do not apply. The model is still needed, and so is
   // it when the binary was found on PATH or in the cache.
   const modelDir = modelOffered
-    ? ((await usableConfiguredModel(ui)) ?? (await resolveModelDir(ui.storagePath)))
+    ? await resolveModelDir(ui.storagePath)
     : await provisionModel(ui, true);
 
   if (resolved.source === "bundled") {
@@ -917,7 +749,7 @@ export async function installLatest(ui: UI): Promise<void> {
     log.error(`no prebuilt binary for ${process.platform}-${process.arch}`);
     throw new Error(
       `Prebuilt binaries are not available for ${process.platform}-${process.arch}. ` +
-      `Set "pali.path" to a manually built pali, or download from the release page.`,
+        `Set "pali.path" to a manually built pali, or download from the release page.`,
     );
   }
   log.info(`installing pali for ${process.platform}-${process.arch} (target ${target})`);
@@ -945,59 +777,50 @@ export async function installLatest(ui: UI): Promise<void> {
   await fs.mkdir(ui.storagePath, { recursive: true });
 
   await ui.progress(`Installing pali (${target})...`, null, async (reportProgress) => {
-    const name = releaseAssetName(target);
-    // Use the token-authenticated release asset API directly. The browser
-    // download URL does not pass the HTTPS token to private repositories.
-    const token = await ui.getToken?.();
-    const assetUrl = await releaseAssetUrl(name, token);
-    if (!assetUrl) {
-      log.error(`failed to resolve ${name} asset URL via the release API`);
-      throw new Error(
-        `Could not find the ${name} asset in the latest release. ` +
-        "Check the release page or ensure a token with repo read access is configured.",
-      );
-    }
-
-    const archivePath = path.join(ui.storagePath, name);
+    const url = releaseUrl(target);
+    const archivePath = path.join(ui.storagePath, releaseAssetName(target));
     const dest = path.join(ui.storagePath, binaryName());
-    log.info(`downloading ${name} from the release asset API`);
+    log.info(`release asset: ${releaseAssetName(target)} from ${url}`);
     try {
-      await downloadWithProgress(assetUrl, archivePath, reportProgress, token, {
-        Accept: "application/octet-stream",
-      });
+      await downloadWithProgress(url, archivePath, reportProgress, await ui.getToken?.());
       log.info(`extracting ${binaryName()} from ${path.basename(archivePath)}...`);
       await extractBinaryFromArchive(await fs.readFile(archivePath), ui.storagePath, target);
+      log.success(`binary extracted to ${dest}`);
       ui.paliPath = dest;
     } finally {
       // Keep only the extracted executable, not the archive.
-      await fs.rm(archivePath, { force: true }).catch(() => { });
+      await fs.rm(archivePath, { force: true }).catch(() => {});
     }
+
+    // Try to get the version from the binary. `pali --version` prints
+    // "pali <semver>"; keep only the version so update checks compare tags.
+    let version = "latest";
+    try {
+      const { execFile } = require("node:child_process");
+      const { promisify } = require("node:util");
+      const execFileAsync = promisify(execFile);
+      const { stdout } = await execFileAsync(dest, ["--version"]);
+      version = stdout.trim().split(/\s+/).pop() || "latest";
+    } catch {
+      // Keep 'latest' if version check fails
+    }
+
+    await writeMaintenance(ui.storagePath, {
+      installedVersion: version,
+      checkUpdates: true,
+    });
   });
 
-  // `pali --version` prints "pali <semver>"; store just the version used by
-  // update checks. Keep "latest" if the executable cannot report it.
-  let version = "latest";
-  try {
-    const { execFile } = require("node:child_process");
-    const { promisify } = require("node:util");
-    const execFileAsync = promisify(execFile);
-    const { stdout } = await execFileAsync(ui.paliPath, ["--version"]);
-    version = stdout.trim().split(/\s+/).pop() || "latest";
-  } catch {
-    // Keep 'latest' if version check fails.
-  }
-
-  await writeMaintenance(ui.storagePath, {
-    installedVersion: version,
-    checkUpdates: true,
-  });
-
-  // The server needs the embedding model too; keep its large download optional.
+  // The server cannot start without the embedding model, so offer it in the
+  // same install flow. The prompt keeps the ~130 MB download a user choice;
+  // installModel reports its own failure, so a model problem never blocks the
+  // binary install.
   await provisionModel(ui, true);
 
   await ui.promptReload(`pali installed at ${ui.paliPath}`);
 }
 
+/** Normalise a release tag for comparison ("v1.0.0" and "1.0.0" are equal). */
 function normalizeVersion(version: string): string {
   return version.trim().replace(/^v/i, "");
 }

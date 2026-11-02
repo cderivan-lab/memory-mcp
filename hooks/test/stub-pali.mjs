@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 /**
- * Offline stand-in for `pali serve` (stdio is the only transport pali
- * speaks), used by the test suite.
+ * Offline stand-in for `pali serve --transport stdio`, used by the test suite.
  *
  * Every `tools/call` is appended to $STUB_LOG as one JSON line. `list` answers
  * from $STUB_LIST (a JSON array of memory summaries); `note` and `forget`
@@ -65,23 +64,10 @@ function handle(message) {
     const memories = listMemories();
     reply(
       message.id,
-      textResult({
-        count: memories.length,
-        returned: memories.length,
-        limit: args.limit ?? 10,
-        has_more: false,
-        memories,
-      }),
+      textResult({ count: memories.length, returned: memories.length, limit: args.limit ?? 10, has_more: false, memories }),
     );
   } else if (name === "note") {
-    reply(
-      message.id,
-      textResult({
-        id: `stub-${String(args.name).slice(-12)}`,
-        name: args.name,
-        scope: args.scope,
-      }),
-    );
+    reply(message.id, textResult({ id: `stub-${String(args.name).slice(-12)}`, name: args.name, scope: args.scope }));
   } else if (name === "forget") {
     reply(message.id, textResult({ deleted: true, name: args.name }));
   } else if (name === "recall") {

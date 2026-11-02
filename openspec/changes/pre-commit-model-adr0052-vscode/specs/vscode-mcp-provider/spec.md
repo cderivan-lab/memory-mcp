@@ -1,72 +1,53 @@
 # Specification: VS Code Extension MCP Provider Registration
 
-## ADDED Requirements
+## Scope
 
-### Requirement: REQ-431 Provider Registration
+VS Code extension registers pali MCP server via VS Code 1.101+ MCP API.
+
+## Requirements
+
+### REQ-431: Provider Registration
 
 - **ID**: REQ-431
 - **Description**: Extension calls `vscode.lm.registerMcpServerDefinitionProvider("pali", provider)` on activate
 - **Rationale**: Automatic server registration
 
-#### Scenario: Provider registration
-
-- **WHEN** the extension is activated
-- **THEN** it calls `vscode.lm.registerMcpServerDefinitionProvider("pali", provider)`
-
-### Requirement: REQ-432 Server Definition
+### REQ-432: Server Definition
 
 - **ID**: REQ-432
 - **Description**: Provider returns `McpStdioServerDefinition` with command/args/env from `pali.*` settings
 - **Rationale**: Configurable server launch
 
-#### Scenario: Server definition
-
-- **WHEN** the provider returns a definition
-- **THEN** it is a `McpStdioServerDefinition` with command/args/env
-
-### Requirement: REQ-433 Settings Integration
+### REQ-433: Settings Integration
 
 - **ID**: REQ-433
 - **Description**: Uses `pali.command`, `pali.args`, `pali.env` settings
 - **Rationale**: User customization
 
-#### Scenario: Settings integration
-
-- **WHEN** settings are configured
-- **THEN** `pali.command`, `pali.args`, `pali.env` are used
-
-### Requirement: REQ-434 Package.json Contribution
+### REQ-434: Package.json Contribution
 
 - **ID**: REQ-434
 - **Description**: `package.json` contributes `mcpServerDefinitionProviders` with `pali`
 - **Rationale**: VS Code discovers provider
 
-#### Scenario: Package.json contribution
-
-- **WHEN** package.json is reviewed
-- **THEN** it contributes `mcpServerDefinitionProviders` with `pali`
-
-### Requirement: REQ-435 Tests
+### REQ-435: Tests
 
 - **ID**: REQ-435
 - **Description**: Integration tests verify provider registration and definition
 - **Rationale**: Regression prevention
 
-#### Scenario: Tests verification
-
-- **WHEN** tests are run
-- **THEN** provider registration and definition are verified
-
-### Requirement: REQ-436 Backward Compatibility
+### REQ-436: Backward Compatibility
 
 - **ID**: REQ-436
 - **Description**: VS Code < 1.101 logs warning, no registration (graceful degradation)
 - **Rationale**: Older VS Code versions still work
 
-#### Scenario: Backward compatibility
+## Settings
 
-- **WHEN** VS Code version is < 1.101
-- **THEN** a warning is logged and no registration occurs
+| Setting | Type | Default | Description |
+| --------- | ------ | --------- | ------------- |
+| `pali.command` | string | "pali" | CLI command |
+| `pali.args` | string[] | ["serve"] | CLI arguments |
 | `pali.env` | object | {} | Environment variables |
 
 ## Files

@@ -1,39 +1,28 @@
 # Specification: ADR-0052 Optional In-Memory HTTPS Token Storage
 
-## ADDED Requirements
+## Scope
 
-### Requirement: REQ-421 ADR Document
+Design document for optional in-memory token caching.
+
+## Requirements
+
+### REQ-421: ADR Document
 
 - **ID**: REQ-421
 - **Description**: `docs/adr/0052-optional-in-memory-https-token.md` exists with standard ADR format
 - **Rationale**: Architectural decision recorded
 
-#### Scenario: ADR document existence
-
-- **WHEN** the ADR document is checked for existence
-- **THEN** it exists with standard ADR format
-
-### Requirement: REQ-422 Decision Recorded
+### REQ-422: Decision Recorded
 
 - **ID**: REQ-422
 - **Description**: ADR documents context, decision, consequences for in-memory token cache
 - **Rationale**: Future reference for implementation
 
-#### Scenario: Decision recorded
-
-- **WHEN** the ADR decision is reviewed
-- **THEN** context, decision, consequences are documented
-
-### Requirement: REQ-423 Optional Feature
+### REQ-423: Optional Feature
 
 - **ID**: REQ-423
 - **Description**: In-memory cache disabled by default, enabled via `PALI_TOKEN_CACHE=memory`
 - **Rationale**: Opt-in for environments without keyring
-
-#### Scenario: Optional feature flag
-
-- **WHEN** `PALI_TOKEN_CACHE=memory` is set
-- **THEN** in-memory cache is enabled
 
 ## ADR Structure
 

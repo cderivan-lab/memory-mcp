@@ -1,30 +1,8 @@
 {
   "name": "pali-memory",
   "displayName": "Pali Memory",
+  "version": "0.3.0",
   "description": "Registers the Pali memory MCP server and installs its GitHub Copilot hooks.",
-  "version": "1.0.0",
-  "publisher": "cderivan",
-  "license": "MIT",
-  "icon": "images/icon.png",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/cderivan/memory-mcp"
-  },
-  "bugs": {
-    "url": "https://github.com/cderivan/memory-mcp/issues"
-  },
-  "homepage": "https://github.com/cderivan/memory-mcp#readme",
-  "galleryBanner": {
-    "color": "#1F2430",
-    "theme": "dark"
-  },
-  "engines": {
-    "vscode": "^1.145.0"
-  },
-  "categories": [
-    "AI",
-    "Other"
-  ],
   "keywords": [
     "ai",
     "copilot",
@@ -33,10 +11,40 @@
     "model context protocol",
     "pali"
   ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cderivan/memory-mcp"
+  },
+  "publisher": "cderivan",
   "main": "./out/extension.js",
-  "activationEvents": [
-    "onStartupFinished"
-  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "icon": "node scripts/make-icon.js",
+    "package": "vsce package --baseContentUrl https://github.com/cderivan/memory-mcp/src/branch/main --baseImagesUrl https://github.com/cderivan/memory-mcp/raw/branch/main",
+    "prepare": "npm run build && npm run icon",
+    "postinstall": "node scripts/patch-url-parse.js",
+    "test": "node --test test/extension.test.js",
+    "test:coverage": "node  --experimental-test-coverage --test test/extension.test.js",
+    "test:vsix": "node --test test/vsix.test.js",
+    "clean": "rm -rf out node_modules target pali-memory-*.vsix tsconfig.tsbuildinfo",
+    "vscode:prepublish": "npm run build && npm run icon",
+    "watch": "tsc -p tsconfig.json --watch"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/vscode": "^1.101.0",
+    "@vscode/test-cli": "^0.0.15",
+    "@vscode/vsce": "4.1.0",
+    "typescript": "^7.0.2",
+    "vscode-extension-tester": "8.28.1"
+  },
+  "overrides": {
+    "diff": "^9.0.0",
+    "glob": "^14.0.3",
+    "minimatch": "^11.0.3",
+    "serialize-javascript": "^7.1.4"
+  },
   "contributes": {
     "commands": [
       {
@@ -58,14 +66,6 @@
       {
         "command": "pali.restart",
         "title": "Pali: Restart MCP Server"
-      },
-      {
-        "command": "pali.scan",
-        "title": "Pali: Scan Workspace"
-      },
-      {
-        "command": "pali.index",
-        "title": "Pali: Index Workspace"
       }
     ],
     "configuration": {
@@ -90,11 +90,6 @@
           "description": "Git remote for the memory repository: an HTTPS or SSH URL, or an absolute path to a local repository. Empty runs local-only, with no push or pull.",
           "type": "string"
         },
-        "pali.remoteSync": {
-          "default": false,
-          "description": "Pull every repository from the remote before startup index freshness is decided, and refuse to start when pali.remoteUrl is not set. Requires a non-empty pali.remoteUrl.",
-          "type": "boolean"
-        },
         "pali.repoPath": {
           "default": "",
           "description": "Git-backed memory repository. Empty uses the pali default (~/.memory-mcp).",
@@ -104,21 +99,6 @@
           "default": "",
           "description": "Memory scope for hooks. Empty uses the workspace folder's git repository name.",
           "type": "string"
-        },
-        "pali.scanBlame": {
-          "default": false,
-          "description": "Record per-line commit IDs from git blame in the scan manifest. Only commit IDs and line numbers are written, never author names, emails, or source lines.",
-          "type": "boolean"
-        },
-        "pali.scanMaxFileBytes": {
-          "default": 2097152,
-          "description": "Maximum size in bytes of a file included by Pali: Scan Repositories.",
-          "type": "number"
-        },
-        "pali.scanSaveMemories": {
-          "default": true,
-          "description": "Save the codebase insight digest as the codebase-insights memory in the memory repository. Uses pali.repoPath and pali.scope.",
-          "type": "boolean"
         },
         "pali.logLevel": {
           "default": "info",
@@ -131,11 +111,6 @@
             "error",
             "off"
           ]
-        },
-        "pali.modelPath": {
-          "default": "",
-          "description": "Directory containing the embedding model files (config.json, tokenizer.json, model.safetensors). Empty uses the model auto-installed by the extension, or the platform default when none is installed. A directory missing any of the files is reported and ignored.",
-          "type": "string"
         }
       },
       "title": "Pali"
@@ -147,53 +122,18 @@
       }
     ]
   },
-  "scripts": {
-    "esbuild-base": "esbuild ./src/extension.ts ./src/uninstall.ts --bundle --outdir=out --external:vscode --format=cjs --platform=node",
-    "build:binary": "node scripts/build-binary.mjs",
-    "build": "npm run build:binary && npm run compile",
-    "icon": "node scripts/make-icon.js",
-    "package": "vsce package",
-    "compile": "npm run -S esbuild-base -- --sourcemap",
-    "compile:tests": "esbuild ./src/extension.ts ./src/uninstall.ts ./src/utils/lib.ts ./src/utils/instructions.ts ./src/utils/install.ts ./src/utils/install_pali.ts ./src/utils/logger.ts --bundle --outdir=out --external:vscode --format=cjs --platform=node --sourcemap --outbase=./src",
-    "pretest": "npm run -S compile:tests",
-    "prepare": "npm run compile && npm run icon",
-    "postinstall": "node scripts/patch-url-parse.js",
-    "vscode:uninstall": "node ./out/uninstall.js",
-    "test": "mocha test/**/*.test.js test/**/*.test.mjs hooks/test/**/*.test.mjs",
-    "pkginstall": "code --install-extension pali-memory-1.0.0.vsix",
-    "pkguninstall": "code --uninstall-extension cderivan.pali-memory",
-    "reinstall": "npm run pkguninstall & npm run pkginstall",
-    "test:e2e": "vscode-test",
-    "test:e2e:ui": "node scripts/e2e-ui-fixtures.mjs && node scripts/run-e2e-ui.mjs",
-    "test:coverage": "c8 mocha test/**/*.test.js test/**/*.test.mjs --options c8-node-options=http2 && cargo llvm-cov nextest",
-    "test:vsix": "mocha test/vsix.test.js",
-    "test:hooks": "mocha hooks/test/**/*.test.mjs",
-    "clean": "rm -rf out node_modules target pali-memory-*.vsix tsconfig.tsbuildinfo",
-    "vscode:prepublish": "npm run compile && npm run icon",
-    "watch": "tsc -p tsconfig.json --watch"
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "icon": "images/icon.png",
+  "galleryBanner": {
+    "color": "#1F2430",
+    "theme": "dark"
   },
-  "devDependencies": {
-    "@types/chai": "^5.2.3",
-    "@types/mocha": "^10.0.9",
-    "@types/node": "^26.6.6",
-    "@types/vscode": "^1.145.0",
-    "@vscode/test-cli": "^0.0.15",
-    "@vscode/test-electron": "^3.1.0",
-    "@vscode/vsce": "4.1.0",
-    "c8": "^12.0.0",
-    "chai": "^6.3.0",
-    "esbuild": "^0.28.2",
-    "mocha": "^12.0.3",
-    "typescript": "^7.0.2",
-    "vscode-extension-tester": "8.28.1"
+  "engines": {
+    "vscode": "^1.101.0"
   },
-  "overrides": {
-    "diff": "^9.0.0",
-    "glob": "^14.0.3",
-    "minimatch": "^11.0.3",
-    "serialize-javascript": "^7.1.4"
-  },
-  "dependencies": {
-    "os": "^0.1.2"
+  "allowScripts": {
+    "@vscode/vsce-sign@2.1.0": true
   }
 }

@@ -3,12 +3,11 @@
 ## Status
 Accepted — supersedes [ADR-0005](0005-fastembed-configurable-from-start.md)
 
-> **Update:** ADR-0051 re-introduces the `hf-hub` dependency and automatic
-> HuggingFace Hub download on cache miss. The model is loaded from a local
-> directory resolved via `PALI_MODEL_DIR` (or a platform default), with a
-> network download fallback when the resolved directory is missing required
-> files. `HF_HOME` and `HF_ENDPOINT` are honored again. The decision to use
-> candle for pure-Rust BERT inference, below, is unaffected.
+> **Update:** `hf-hub` and `HF_HOME` were removed in ADR-0049. The model is
+> now loaded from a local directory resolved via `PALI_MODEL_DIR` (or a
+> platform default), fetched manually with `scripts/fetch-model.sh` — Pali no
+> longer downloads it itself. The decision to use candle for pure-Rust BERT
+> inference, below, is unaffected.
 
 ## Context
 fastembed relies on ort-sys, an FFI binding to the ONNX Runtime C++ library. This

@@ -1,5 +1,5 @@
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, mpsc};
 use std::time::Instant;
@@ -15,44 +15,11 @@ use super::EmbeddingBackend;
 use crate::error::MemoryError;
 use crate::health::SubsystemReporter;
 
-// -----------------------------------------------------------------------------
-// Model constants
-// -----------------------------------------------------------------------------
-
 /// HuggingFace model ID. Only BGE-small-en-v1.5 is supported currently.
 pub const MODEL_ID: &str = "BAAI/bge-small-en-v1.5";
 
-/// Owner/name for the HuggingFace model repository.
-const MODEL_OWNER: &str = "BAAI";
-const MODEL_NAME: &str = "bge-small-en-v1.5";
-
-/// Model layout shared with the VS Code extension (`src/model-manifest.json`).
-///
-/// The extension downloads into `dir` and checks `files`; the loader reads the
-/// same names from this one file, so an install cannot land somewhere the
-/// server never looks and a rename cannot desync the two sides.
-const MODEL_MANIFEST: &str = include_str!("../../../src/model-manifest.json");
-
-#[derive(serde::Deserialize)]
-struct ModelManifest {
-    id: String,
-    dir: String,
-    files: ModelFiles,
-}
-
-#[derive(serde::Deserialize)]
-struct ModelFiles {
-    config: String,
-    tokenizer: String,
-    weights: String,
-}
-
-/// Parse the embedded manifest. A failure is a broken build input rather than a
-/// runtime condition; `tests/model_manifest.rs` fails first when it is wrong.
-fn model_manifest() -> anyhow::Result<ModelManifest> {
-    serde_json::from_str(MODEL_MANIFEST)
-        .map_err(|e| anyhow::anyhow!("embedded model manifest is invalid: {e}"))
-}
+/// Directory name under `models/` that holds the model files.
+const MODEL_DIR_NAME: &str = "bge-small-en-v1.5";
 
 // ---------------------------------------------------------------------------
 // Worker thread
@@ -97,10 +64,10 @@ impl CandleEmbeddingEngine {
     /// Initialise the candle embedding engine.
     ///
     /// Loads model weights from a local directory — see `model_dir` for how
-    /// that directory is resolved. If the model files are missing, an
-    /// automatic download from HuggingFace Hub is attempted (ADR-0051).
-    /// Downloads are cached in `HF_HOME` (defaults to `~/.cache/huggingface`)
-    /// and respect `HF_ENDPOINT` for self-hosted Hub mirrors.
+    /// that directory is resolved. Pali does not download the model itself;
+    /// `load_model_files` returns an actionable error naming the missing
+    /// file and directory if the model has not been provisioned (see
+    /// `scripts/fetch-model.sh` and ADR-0049).
     ///
     /// `embed_timeout` caps how long a single [`embed`](Self::embed) call may
     /// block. If the worker is still running when the timeout fires, the caller
@@ -136,10 +103,9 @@ impl CandleEmbeddingEngine {
 
         // SAFETY: `from_mmaped_safetensors` memory-maps the weights file. The
         // caller must ensure the file is not modified for the lifetime of the
-        // resulting tensors. The file is downloaded once from HuggingFace Hub
-        // (see `load_model_files`) and cached in `HF_HOME`, or provided via
-        // `PALI_MODEL_DIR`; Pali never writes to it, so the mapping is stable
-        // for the process lifetime.
+        // resulting tensors. The file is placed by a one-time manual download
+        // (see `model_dir`) and Pali never writes to it, so the mapping is
+        // stable for the process lifetime.
         let vb = unsafe {
             VarBuilder::from_mmaped_safetensors(&[weights_path], candle_core::DType::F32, &device)
                 .map_err(|e| MemoryError::Embedding(format!("failed to load weights: {e}")))?
@@ -378,63 +344,54 @@ impl EmbeddingBackend for CandleEmbeddingEngine {
 ///    vendored in the workspace or repository is found without configuration
 /// 3. `<platform local data dir>/memory-mcp/models/bge-small-en-v1.5`
 ///
-/// If the resolved directory is missing any required file, [`load_model_files`]
-/// will attempt to download from HuggingFace Hub (ADR-0051), respecting
-/// `HF_HOME` and `HF_ENDPOINT` environment variables.
+/// Pali never downloads the model. If the resolved directory is missing any
+/// required file, [`load_model_files`] names the file, the directory, and the
+/// remediation.
 fn model_dir() -> anyhow::Result<PathBuf> {
-    let manifest = model_manifest()?;
     if let Some(dir) = std::env::var_os("PALI_MODEL_DIR") {
         return Ok(PathBuf::from(dir));
     }
 
     if let Ok(cwd) = std::env::current_dir() {
-        let local = cwd.join("models").join(&manifest.dir);
+        let local = cwd.join("models").join(MODEL_DIR_NAME);
         if local.is_dir() {
             return Ok(local);
         }
     }
 
     let data_dir = dirs::data_local_dir().ok_or_else(|| {
-        anyhow::anyhow!(
-            "set PALI_MODEL_DIR to locate the {} embedding model",
-            manifest.dir
-        )
+        anyhow::anyhow!("set PALI_MODEL_DIR to locate the bge-small-en-v1.5 embedding model")
     })?;
     Ok(data_dir
         .join("memory-mcp")
         .join("models")
-        .join(&manifest.dir))
+        .join(MODEL_DIR_NAME))
 }
 
 /// Load the model files from the directory resolved by [`model_dir`].
 ///
-/// Attempts to download missing files from HuggingFace Hub when the local
-/// directory is missing any of `config.json`, `tokenizer.json`, or
-/// `model.safetensors`. Downloads are cached under `HF_HOME` (defaults to
-/// `~/.cache/huggingface`). Downloads are performed synchronously at startup
-/// and do not display progress bars; status is logged via tracing.
+/// Missing files are reported together with the resolved directory and the
+/// manual provisioning step; there is no network fallback.
 fn load_model_files() -> anyhow::Result<(BertConfig, Tokenizer, PathBuf)> {
     let _span = tracing::info_span!("embedding.load_model", model = MODEL_ID).entered();
 
-    let manifest = model_manifest()?;
     let dir = model_dir()?;
-    let config_path = dir.join(&manifest.files.config);
-    let tokenizer_path = dir.join(&manifest.files.tokenizer);
-    let weights_path = dir.join(&manifest.files.weights);
+    let config_path = dir.join("config.json");
+    let tokenizer_path = dir.join("tokenizer.json");
+    let weights_path = dir.join("model.safetensors");
 
-    let missing: Vec<_> = [&config_path, &tokenizer_path, &weights_path]
-        .iter()
-        .filter(|p| !p.exists())
-        .map(|p| (*p).to_path_buf())
-        .collect();
-
-    if !missing.is_empty() {
-        tracing::info!(
-            model = MODEL_ID,
-            dir = %dir.display(),
-            "attempting HuggingFace download for missing model files"
-        );
-        download_model_files(&manifest, &dir)?;
+    for path in [&config_path, &tokenizer_path, &weights_path] {
+        if !path.exists() {
+            anyhow::bail!(
+                "embedding model file not found: {}\n\n\
+                 Pali does not download model weights automatically. Fetch {MODEL_ID} \
+                 into {} first, e.g. by running `scripts/fetch-model.sh`, or set \
+                 PALI_MODEL_DIR to a directory that already contains config.json, \
+                 tokenizer.json, and model.safetensors.",
+                path.display(),
+                dir.display(),
+            );
+        }
     }
 
     tracing::info!(model = MODEL_ID, dir = %dir.display(), "loading embedding model");
@@ -443,51 +400,6 @@ fn load_model_files() -> anyhow::Result<(BertConfig, Tokenizer, PathBuf)> {
         .map_err(|e| anyhow::anyhow!("failed to load tokenizer: {e}"))?;
 
     Ok((config, tokenizer, weights_path))
-}
-
-/// Download missing model files from HuggingFace Hub.
-/// Uses `hf_hub` with a blocking client to download files synchronously.
-/// Progress bars are suppressed for headless operation; status is logged via tracing.
-fn download_model_files(manifest: &ModelManifest, dir: &Path) -> anyhow::Result<()> {
-    use hf_hub::HFClientSync;
-
-    let client = HFClientSync::new()
-        .map_err(|e| anyhow::anyhow!("failed to create HuggingFace client: {e}"))?;
-
-    let repo = client.model(MODEL_OWNER, MODEL_NAME);
-
-    std::fs::create_dir_all(dir)
-        .map_err(|e| anyhow::anyhow!("failed to create model directory {}: {e}", dir.display()))?;
-
-    for file in [
-        &manifest.files.config,
-        &manifest.files.tokenizer,
-        &manifest.files.weights,
-    ] {
-        let local_path = dir.join(file);
-        if local_path.exists() {
-            continue;
-        }
-
-        tracing::info!(file = file, "downloading from HuggingFace Hub");
-        repo.download_file()
-            .filename(file.as_str())
-            .local_dir(dir.to_path_buf())
-            .local_files_only(false)
-            .send()
-            .map_err(|e| {
-                anyhow::anyhow!(
-                    "failed to download model file '{}' from {}: {}\n\n\
-                     Run `scripts/fetch-model.sh` manually or set PALI_MODEL_DIR to a directory \
-                     that already contains the model files (config.json, tokenizer.json, model.safetensors).",
-                    file,
-                    manifest.id,
-                    e
-                )
-            })?;
-    }
-
-    Ok(())
 }
 
 // ---------------------------------------------------------------------------

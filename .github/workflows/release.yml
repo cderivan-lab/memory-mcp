@@ -1,3 +1,24 @@
+# Release workflow — triggered by a tag push.
+#
+# A release ships two kinds of artifacts:
+#   * the `pali` binaries — Linux x86_64 and universal macOS — uploaded both as
+#     `.tar.gz` archives and as the bare `pali-<target>` assets the extension
+#     installer resolves (src/utils/install_pali.ts, `releaseUrl`);
+#   * the VS Code extension — one VSIX per VS Code target, each bundling that
+#     platform's binary as `out/bin/pali`.
+#
+# Every artifact is uploaded to the draft release created first, and the
+# release is undrafted only when all of them are present.
+#
+# Releases are published through Gitea's release API using the GITEA_TOKEN
+# secret. These runs execute on the self-hosted Gitea instance, where `gh` talks
+# to github.com and would 404 on a repository that does not exist there.
+#
+# Crate and container publishing are not part of this workflow: they called
+# .github/workflows/{publish-crate,publish-image,update-release-notes}.yml,
+# which do not exist in this repository, so tag runs failed at job resolution
+# before anything was uploaded. Re-add them here once those reusable workflows
+# are restored; tagged container images are still built by ci.yml.
 name: Release
 
 on:
@@ -11,8 +32,51 @@ concurrency:
 permissions: {}
 
 env:
-  GITHUB_API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
-  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  # Gitea's release API for this repository. `github.server_url` resolves to the
+  # instance the workflow runs on, so no host is hardcoded. GITHUB_TOKEN cannot
+  # authenticate against the Gitea API; GITEA_TOKEN is a token with repository
+  # write access.
+  GITEA_API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
+  GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
+  # Public root CA of the self-hosted Gitea instance, embedded here because a
+  # fresh job container trusts only public roots and actions/checkout runs
+  # before any repository file exists. Safe to publish: a certificate, not a key.
+  # Keep in sync with infra/nomad/certs/clebsong-derivan-root-ca.pem.
+  CLEBSONG_ROOT_CA_PEM: |
+    -----BEGIN CERTIFICATE-----
+    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
+    uM/Ixg==
+    -----END CERTIFICATE-----
 
 jobs:
   create-release:
@@ -22,13 +86,37 @@ jobs:
     outputs:
       tag_name: ${{ github.ref_name }}
     steps:
+      # This job talks to the Gitea API over HTTPS, so it needs the internal
+      # root in curl's trust store; without it release creation dies with
+      # "unable to get local issuer certificate".
+      - name: Trust the internal CA
+        run: |
+          set -euo pipefail
+          cert="$RUNNER_TEMP/clebsong-root-ca.crt"
+          printf '%s\n' "$CLEBSONG_ROOT_CA_PEM" > "$cert"
+          # Node ships its own bundle and ignores the system store, so every
+          # actions/*.js step (upload-artifact, cache) must be handed the root
+          # explicitly. This used to be guarded by runner.os == 'Linux', which
+          # skipped the step on macOS entirely and made upload-artifact fail
+          # with "unable to verify the first certificate".
+          echo "NODE_EXTRA_CA_CERTS=$cert" >> "$GITHUB_ENV"
+          echo "CURL_CA_BUNDLE=$cert" >> "$GITHUB_ENV"
+          if [ "$(uname -s)" = "Linux" ]; then
+            if [ "$(id -u)" -ne 0 ]; then S=sudo; else S=; fi
+            $S cp "$cert" /usr/local/share/ca-certificates/clebsong-root-ca.crt
+            $S update-ca-certificates
+          else
+            # git and curl on the macOS runner read the system keychain.
+            sudo security add-trusted-cert -d -r trustRoot \
+              -k /Library/Keychains/System.keychain "$cert"
+          fi
       - name: Create draft release
         env:
           TAG_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          if [ -z "${GITHUB_TOKEN:-}" ]; then
-            echo "::error::the GITHUB_TOKEN secret is not set"
+          if [ -z "${GITEA_TOKEN:-}" ]; then
+            echo "::error::the GITEA_TOKEN secret is not set"
             exit 1
           fi
           command -v jq >/dev/null || { echo "::error::jq is required to read Gitea API responses"; exit 1; }
@@ -37,8 +125,8 @@ jobs:
           payload=$(printf '{"tag_name":"%s","name":"%s","draft":true,"prerelease":%s}' \
             "$TAG_NAME" "$TAG_NAME" "$prerelease")
           code=$(curl -sS -o /tmp/release.json -w '%{http_code}' \
-            -X POST "$GITHUB_API/releases" \
-            -H "Authorization: token $GITHUB_TOKEN" \
+            -X POST "$GITEA_API/releases" \
+            -H "Authorization: token $GITEA_TOKEN" \
             -H 'Content-Type: application/json' \
             -d "$payload")
           case "$code" in
@@ -52,6 +140,9 @@ jobs:
               ;;
           esac
 
+  # Build release binaries with cargo-auditable and attach them to the release.
+  # The macOS job produces one universal binary; it is uploaded under both
+  # macOS target names because the extension asks for `pali-<target>` by arch.
   publish-binaries:
     needs: create-release
     strategy:
@@ -88,6 +179,29 @@ jobs:
       ASSETS: ${{ matrix.assets }}
       TAG_NAME: ${{ needs.create-release.outputs.tag_name }}
     steps:
+      # Needed on the self-hosted Gitea instance (internal CA); harmless on
+      # GitHub-hosted runners.
+      - name: Trust the internal CA
+        run: |
+          set -euo pipefail
+          cert="$RUNNER_TEMP/clebsong-root-ca.crt"
+          printf '%s\n' "$CLEBSONG_ROOT_CA_PEM" > "$cert"
+          # Node ships its own bundle and ignores the system store, so every
+          # actions/*.js step (upload-artifact, cache) must be handed the root
+          # explicitly. This used to be guarded by runner.os == 'Linux', which
+          # skipped the step on macOS entirely and made upload-artifact fail
+          # with "unable to verify the first certificate".
+          echo "NODE_EXTRA_CA_CERTS=$cert" >> "$GITHUB_ENV"
+          echo "CURL_CA_BUNDLE=$cert" >> "$GITHUB_ENV"
+          if [ "$(uname -s)" = "Linux" ]; then
+            if [ "$(id -u)" -ne 0 ]; then S=sudo; else S=; fi
+            $S cp "$cert" /usr/local/share/ca-certificates/clebsong-root-ca.crt
+            $S update-ca-certificates
+          else
+            # git and curl on the macOS runner read the system keychain.
+            sudo security add-trusted-cert -d -r trustRoot \
+              -k /Library/Keychains/System.keychain "$cert"
+          fi
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ needs.create-release.outputs.tag_name }}
@@ -128,6 +242,8 @@ jobs:
               ;;
           esac
           chmod 755 build/pali
+      # A binary that cannot report its version cannot serve as an MCP server.
+      # Native now on every leg, including aarch64 on the spacelab runner.
       - name: Check the binary runs
         run: ./build/pali --version
       - name: Package and upload
@@ -138,29 +254,28 @@ jobs:
           cp build/pali "dist/${archive}/pali"
           tar -C dist -czf "dist/${archive}.tar.gz" "${archive}"
           rm -rf "dist/${archive}"
+          # Bare assets, named the way the extension installer asks for them.
           for asset in $ASSETS; do
-            case "$asset" in
-              *apple-darwin) zip -q -j "dist/${asset}.zip" build/pali ;;
-              *) tar -C build -czf "dist/${asset}.tgz" pali ;;
-            esac
+            cp build/pali "dist/pali-${asset}"
+            chmod 755 "dist/pali-${asset}"
           done
           (cd dist && shasum -a 256 "${archive}.tar.gz" > "${archive}.tar.gz.sha256")
 
           command -v jq >/dev/null || { echo "::error::jq is required to read Gitea API responses"; exit 1; }
-          api() { curl -sS -H "Authorization: token $GITHUB_TOKEN" "$@"; }
-          release_id=$(api "$GITHUB_API/releases/tags/$TAG_NAME" | jq -r '.id')
+          api() { curl -sS -H "Authorization: token $GITEA_TOKEN" "$@"; }
+          release_id=$(api "$GITEA_API/releases/tags/$TAG_NAME" | jq -r '.id')
           if [ -z "$release_id" ] || [ "$release_id" = null ]; then
             echo "::error::release $TAG_NAME not found on the Gitea instance"
             exit 1
           fi
-
+          # Gitea refuses a duplicate asset name, so a rerun replaces the old one.
           for file in dist/*; do
             name=${file##*/}
-            for asset_id in $(api "$GITHUB_API/releases/$release_id/assets" \
+            for asset_id in $(api "$GITEA_API/releases/$release_id/assets" \
                 | jq -r --arg name "$name" '.[] | select(.name == $name) | .id'); do
-              api -X DELETE "$GITHUB_API/releases/$release_id/assets/$asset_id" >/dev/null
+              api -X DELETE "$GITEA_API/releases/$release_id/assets/$asset_id" >/dev/null
             done
-            api --fail-with-body -X POST "$GITHUB_API/releases/$release_id/assets?name=$name" \
+            api --fail-with-body -X POST "$GITEA_API/releases/$release_id/assets?name=$name" \
               -H 'Content-Type: application/octet-stream' \
               --data-binary @"$file" >/dev/null
             echo "uploaded $name"
@@ -172,6 +287,10 @@ jobs:
           path: build/pali
           retention-days: 1
 
+  # Bundle each platform's binary into its own VSIX. A VSIX carrying a native
+  # executable cannot be platform-agnostic, so every VS Code target the project
+  # ships gets its own package. Windows is absent for the same reason the
+  # binary matrix skips it (#42).
   publish-vsix:
     needs: [create-release, publish-binaries]
     strategy:
@@ -195,6 +314,27 @@ jobs:
     steps:
       # Needed on the self-hosted Gitea instance (internal CA); harmless on
       # GitHub-hosted runners.
+      - name: Trust the internal CA
+        run: |
+          set -euo pipefail
+          cert="$RUNNER_TEMP/clebsong-root-ca.crt"
+          printf '%s\n' "$CLEBSONG_ROOT_CA_PEM" > "$cert"
+          # Node ships its own bundle and ignores the system store, so every
+          # actions/*.js step (upload-artifact, cache) must be handed the root
+          # explicitly. This used to be guarded by runner.os == 'Linux', which
+          # skipped the step on macOS entirely and made upload-artifact fail
+          # with "unable to verify the first certificate".
+          echo "NODE_EXTRA_CA_CERTS=$cert" >> "$GITHUB_ENV"
+          echo "CURL_CA_BUNDLE=$cert" >> "$GITHUB_ENV"
+          if [ "$(uname -s)" = "Linux" ]; then
+            if [ "$(id -u)" -ne 0 ]; then S=sudo; else S=; fi
+            $S cp "$cert" /usr/local/share/ca-certificates/clebsong-root-ca.crt
+            $S update-ca-certificates
+          else
+            # git and curl on the macOS runner read the system keychain.
+            sudo security add-trusted-cert -d -r trustRoot \
+              -k /Library/Keychains/System.keychain "$cert"
+          fi
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ needs.create-release.outputs.tag_name }}
@@ -211,10 +351,17 @@ jobs:
           # Packaging must not pick the staging directory up as extension content.
           rm -rf .ci-bin
       - name: Install dependencies
+        # `npm ci` pins the resolved tree, including the package.json overrides
+        # that keep the dev-dependency tree off the audit report. Lifecycle
+        # scripts are skipped because `vscode:prepublish` compiles after
+        # packaging starts.
         run: npm ci --ignore-scripts
       - name: Check the tag matches the crate version
         run: |
           set -euo pipefail
+          # Release tags track the server crate, not the extension manifest:
+          # v1.0.0 carried extension 0.3.0, so comparing against package.json
+          # would block every release.
           version=$(grep -m1 '^version' pali/Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
           if [ "v$version" != "$TAG_NAME" ]; then
             echo "::error::pali/Cargo.toml is $version but the tag is $TAG_NAME"
@@ -226,30 +373,36 @@ jobs:
           version=$(node -p "require('./package.json').version")
           out="dist/pali-memory-${version}-${VSIX_TARGET}.vsix"
           mkdir -p dist
+          # The repository URL in package.json is self-hosted Gitea, which vsce
+          # does not recognise, so the README's relative links need explicit
+          # bases or packaging aborts.
           npm run package -- \
             --target "$VSIX_TARGET" \
             --baseContentUrl "https://github.com/cderivan/memory-mcp/src/branch/main" \
             --baseImagesUrl "https://github.com/cderivan/memory-mcp/raw/branch/main" \
             --out "$out"
+          # The bundled binary is the whole point of a platform-specific VSIX.
+          # No `grep -q`: closing the pipe early makes unzip die on SIGPIPE,
+          # which `pipefail` turns into a failed step.
           unzip -l "$out" | grep -F 'extension/out/bin/pali' >/dev/null
           ls -l "$out"
       - name: Upload VSIX
         run: |
           set -euo pipefail
           command -v jq >/dev/null || { echo "::error::jq is required to read Gitea API responses"; exit 1; }
-          api() { curl -sS -H "Authorization: token $GITHUB_TOKEN" "$@"; }
-          release_id=$(api "$GITHUB_API/releases/tags/$TAG_NAME" | jq -r '.id')
+          api() { curl -sS -H "Authorization: token $GITEA_TOKEN" "$@"; }
+          release_id=$(api "$GITEA_API/releases/tags/$TAG_NAME" | jq -r '.id')
           if [ -z "$release_id" ] || [ "$release_id" = null ]; then
             echo "::error::release $TAG_NAME not found on the Gitea instance"
             exit 1
           fi
           for file in dist/*.vsix; do
             name=${file##*/}
-            for asset_id in $(api "$GITHUB_API/releases/$release_id/assets" \
+            for asset_id in $(api "$GITEA_API/releases/$release_id/assets" \
                 | jq -r --arg name "$name" '.[] | select(.name == $name) | .id'); do
-              api -X DELETE "$GITHUB_API/releases/$release_id/assets/$asset_id" >/dev/null
+              api -X DELETE "$GITEA_API/releases/$release_id/assets/$asset_id" >/dev/null
             done
-            api --fail-with-body -X POST "$GITHUB_API/releases/$release_id/assets?name=$name" \
+            api --fail-with-body -X POST "$GITEA_API/releases/$release_id/assets?name=$name" \
               -H 'Content-Type: application/octet-stream' \
               --data-binary @"$file" >/dev/null
             echo "uploaded $name"
@@ -263,19 +416,40 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Trust the internal CA
+        run: |
+          set -euo pipefail
+          cert="$RUNNER_TEMP/clebsong-root-ca.crt"
+          printf '%s\n' "$CLEBSONG_ROOT_CA_PEM" > "$cert"
+          # Node ships its own bundle and ignores the system store, so every
+          # actions/*.js step (upload-artifact, cache) must be handed the root
+          # explicitly. This used to be guarded by runner.os == 'Linux', which
+          # skipped the step on macOS entirely and made upload-artifact fail
+          # with "unable to verify the first certificate".
+          echo "NODE_EXTRA_CA_CERTS=$cert" >> "$GITHUB_ENV"
+          echo "CURL_CA_BUNDLE=$cert" >> "$GITHUB_ENV"
+          if [ "$(uname -s)" = "Linux" ]; then
+            if [ "$(id -u)" -ne 0 ]; then S=sudo; else S=; fi
+            $S cp "$cert" /usr/local/share/ca-certificates/clebsong-root-ca.crt
+            $S update-ca-certificates
+          else
+            # git and curl on the macOS runner read the system keychain.
+            sudo security add-trusted-cert -d -r trustRoot \
+              -k /Library/Keychains/System.keychain "$cert"
+          fi
       - name: Publish the release
         env:
           TAG_NAME: ${{ needs.create-release.outputs.tag_name }}
         run: |
           set -euo pipefail
           command -v jq >/dev/null || { echo "::error::jq is required to read Gitea API responses"; exit 1; }
-          api() { curl -sS -H "Authorization: token $GITHUB_TOKEN" "$@"; }
-          release_id=$(api "$GITHUB_API/releases/tags/$TAG_NAME" | jq -r '.id')
+          api() { curl -sS -H "Authorization: token $GITEA_TOKEN" "$@"; }
+          release_id=$(api "$GITEA_API/releases/tags/$TAG_NAME" | jq -r '.id')
           if [ -z "$release_id" ] || [ "$release_id" = null ]; then
             echo "::error::release $TAG_NAME not found on the Gitea instance"
             exit 1
           fi
-          api --fail-with-body -X PATCH "$GITHUB_API/releases/$release_id" \
+          api --fail-with-body -X PATCH "$GITEA_API/releases/$release_id" \
             -H 'Content-Type: application/json' \
             -d '{"draft":false}' >/dev/null
           echo "published $TAG_NAME"

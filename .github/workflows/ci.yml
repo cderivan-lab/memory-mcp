@@ -2,14 +2,6 @@ name: CI
 
 on:
   workflow_dispatch:
-    inputs:
-      fmt-check:
-        description: >-
-          Run the cargo fmt --check gate. Off by default: rustfmt's
-          line-breaking changes between releases, so the runner's stable
-          toolchain can disagree with the author's on code nobody edited.
-        type: boolean
-        default: false
   push:
     branches: [main]
   pull_request:
@@ -20,25 +12,92 @@ concurrency:
 
 permissions: {}
 
+env:
+  REGISTRY: ghcr.io
+  IMAGE: butterflyskies/memory-mcp
+  # Public root CA of the self-hosted Gitea instance, embedded here because a
+  # fresh job container trusts only public roots and actions/checkout runs
+  # before any repository file exists. Safe to publish: a certificate, not a key.
+  # Keep in sync with infra/nomad/certs/clebsong-derivan-root-ca.pem.
+  CLEBSONG_ROOT_CA_PEM: |
+    -----BEGIN CERTIFICATE-----
+    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
+    uM/Ixg==
+    -----END CERTIFICATE-----
+
 jobs:
   lint:
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
+      # Needed on the self-hosted Gitea instance (internal CA); harmless on
+      # GitHub-hosted runners.
+      - name: Trust the internal CA
+        run: |
+          set -euo pipefail
+          cert="$RUNNER_TEMP/clebsong-root-ca.crt"
+          printf '%s\n' "$CLEBSONG_ROOT_CA_PEM" > "$cert"
+          # Node ships its own bundle and ignores the system store, so every
+          # actions/*.js step (upload-artifact, cache) must be handed the root
+          # explicitly. This used to be guarded by runner.os == 'Linux', which
+          # skipped the step on macOS entirely and made upload-artifact fail
+          # with "unable to verify the first certificate".
+          echo "NODE_EXTRA_CA_CERTS=$cert" >> "$GITHUB_ENV"
+          echo "CURL_CA_BUNDLE=$cert" >> "$GITHUB_ENV"
+          if [ "$(uname -s)" = "Linux" ]; then
+            if [ "$(id -u)" -ne 0 ]; then S=sudo; else S=; fi
+            $S cp "$cert" /usr/local/share/ca-certificates/clebsong-root-ca.crt
+            $S update-ca-certificates
+          else
+            # git and curl on the macOS runner read the system keychain.
+            sudo security add-trusted-cert -d -r trustRoot \
+              -k /Library/Keychains/System.keychain "$cert"
+          fi
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master (2026-03-27)
         with:
           toolchain: stable
+          # rustfmt/clippy are not in the minimal profile this action installs,
+          # so name them instead of relying on the runner image preinstalling
+          # them (GitHub images do; a bare rustup image does not).
           components: rustfmt
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           cache-bin: "false"
-      - name: cargo fmt --check
-        if: (github.event_name == 'workflow_dispatch' && inputs.fmt-check) || vars.FMT_CHECK == 'true'
-        run: cargo fmt --check
+      - run: cargo fmt --check
 
   clippy:
     runs-on: ubuntu-latest
@@ -50,6 +109,29 @@ jobs:
         features:
           - ""
     steps:
+      # Needed on the self-hosted Gitea instance (internal CA); harmless on
+      # GitHub-hosted runners.
+      - name: Trust the internal CA
+        run: |
+          set -euo pipefail
+          cert="$RUNNER_TEMP/clebsong-root-ca.crt"
+          printf '%s\n' "$CLEBSONG_ROOT_CA_PEM" > "$cert"
+          # Node ships its own bundle and ignores the system store, so every
+          # actions/*.js step (upload-artifact, cache) must be handed the root
+          # explicitly. This used to be guarded by runner.os == 'Linux', which
+          # skipped the step on macOS entirely and made upload-artifact fail
+          # with "unable to verify the first certificate".
+          echo "NODE_EXTRA_CA_CERTS=$cert" >> "$GITHUB_ENV"
+          echo "CURL_CA_BUNDLE=$cert" >> "$GITHUB_ENV"
+          if [ "$(uname -s)" = "Linux" ]; then
+            if [ "$(id -u)" -ne 0 ]; then S=sudo; else S=; fi
+            $S cp "$cert" /usr/local/share/ca-certificates/clebsong-root-ca.crt
+            $S update-ca-certificates
+          else
+            # git and curl on the macOS runner read the system keychain.
+            sudo security add-trusted-cert -d -r trustRoot \
+              -k /Library/Keychains/System.keychain "$cert"
+          fi
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
@@ -73,6 +155,29 @@ jobs:
         features:
           - ""
     steps:
+      # Needed on the self-hosted Gitea instance (internal CA); harmless on
+      # GitHub-hosted runners.
+      - name: Trust the internal CA
+        run: |
+          set -euo pipefail
+          cert="$RUNNER_TEMP/clebsong-root-ca.crt"
+          printf '%s\n' "$CLEBSONG_ROOT_CA_PEM" > "$cert"
+          # Node ships its own bundle and ignores the system store, so every
+          # actions/*.js step (upload-artifact, cache) must be handed the root
+          # explicitly. This used to be guarded by runner.os == 'Linux', which
+          # skipped the step on macOS entirely and made upload-artifact fail
+          # with "unable to verify the first certificate".
+          echo "NODE_EXTRA_CA_CERTS=$cert" >> "$GITHUB_ENV"
+          echo "CURL_CA_BUNDLE=$cert" >> "$GITHUB_ENV"
+          if [ "$(uname -s)" = "Linux" ]; then
+            if [ "$(id -u)" -ne 0 ]; then S=sudo; else S=; fi
+            $S cp "$cert" /usr/local/share/ca-certificates/clebsong-root-ca.crt
+            $S update-ca-certificates
+          else
+            # git and curl on the macOS runner read the system keychain.
+            sudo security add-trusted-cert -d -r trustRoot \
+              -k /Library/Keychains/System.keychain "$cert"
+          fi
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
@@ -86,6 +191,10 @@ jobs:
       - name: Install cargo-nextest
         run: |
           set -euo pipefail
+          # The runner is x86_64 on cosmos and on GitHub-hosted ubuntu runners,
+          # but arm64 when act runs the job on an Apple Silicon host. A
+          # hardcoded x86_64 prebuilt there dies with "rosetta error: failed to
+          # open elf at /lib64/ld-linux-x86-64.so.2", so pick by machine.
           case "$(uname -m)" in
             x86_64)
               arch=x86_64-unknown-linux-gnu
@@ -100,84 +209,44 @@ jobs:
               exit 1
               ;;
           esac
-          curl -fsSL --proto '=https' "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.136/cargo-nextest-0.9.136-${arch}.tar.gz" \
+          curl -fsSL "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.136/cargo-nextest-0.9.136-${arch}.tar.gz" \
             -o /tmp/cargo-nextest.tar.gz
           echo "${sum}  /tmp/cargo-nextest.tar.gz" | sha256sum -c -
           if [ "$(id -u)" -ne 0 ]; then S=sudo; else S=; fi
           $S tar xzf /tmp/cargo-nextest.tar.gz -C /usr/local/bin
       - run: cargo nextest run --workspace --no-fail-fast ${{ matrix.features }}
 
-  test-e2e:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - name: Install a virtual display
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends xvfb
-      # `npm run build` compiles the server crate and stages out/bin/pali, so this
-      # job needs the same Rust toolchain and native dependencies as `test`.
-      - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
-      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master (2026-03-27)
-        with:
-          toolchain: stable
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-        with:
-          key: e2e
-          cache-bin: "false"
-      # Cached runner state: `.vscode-test` holds the VS Code build the host
-      # suite launches, `test-resources` holds ExTester's VS Code and
-      # ChromeDriver. Bump the salt when the cached layout or the pinned
-      # VS Code major changes.
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: |
-            .vscode-test
-            test-resources
-          key: e2e-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-v1
-          restore-keys: |
-            e2e-${{ runner.os }}-
-      - name: Install dependencies and build the extension
-        run: |
-          set -euo pipefail
-          npm ci --ignore-scripts
-          npm run build
-      - name: Extension host end-to-end
-        run: xvfb-run -a npm run test:e2e
-      # Seed the repository-root `.env` the launchers read, so this job
-      # exercises the documented configuration path instead of only the
-      # throwaway-directory fallback. PALI_E2E_STORAGE stays unset: ExTester's
-      # VS Code and ChromeDriver cache lives under test-resources.
-      - name: Seed the end-to-end environment
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/pali-e2e/hooks" \
-                   "$RUNNER_TEMP/pali-e2e/instructions" \
-                   "$RUNNER_TEMP/pali-e2e/skills"
-          cat > .env <<EOF
-          PALI_HOOKS_DIR=$RUNNER_TEMP/pali-e2e/hooks
-          PALI_INSTRUCTIONS_PATH=$RUNNER_TEMP/pali-e2e/instructions/pali-memory.instructions.md
-          PALI_SKILLS_DIR=$RUNNER_TEMP/pali-e2e/skills
-          EOF
-      - name: Notification click end-to-end
-        run: xvfb-run -a npm run test:e2e:ui
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: failure()
-        with:
-          name: e2e-failure-artifacts
-          path: |
-            test-resources/screenshots
-            test-resources/chromedriver.log
-          retention-days: 3
-
+  # Package the extension the way a release does, so broken vsce packaging or a
+  # stale manifest fails on the PR instead of on the tag. No binary is staged
+  # here, so this VSIX is a packaging check rather than a shippable artifact.
   vsix:
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
+      # Needed on the self-hosted Gitea instance (internal CA); harmless on
+      # GitHub-hosted runners.
+      - name: Trust the internal CA
+        run: |
+          set -euo pipefail
+          cert="$RUNNER_TEMP/clebsong-root-ca.crt"
+          printf '%s\n' "$CLEBSONG_ROOT_CA_PEM" > "$cert"
+          # Node ships its own bundle and ignores the system store, so every
+          # actions/*.js step (upload-artifact, cache) must be handed the root
+          # explicitly. This used to be guarded by runner.os == 'Linux', which
+          # skipped the step on macOS entirely and made upload-artifact fail
+          # with "unable to verify the first certificate".
+          echo "NODE_EXTRA_CA_CERTS=$cert" >> "$GITHUB_ENV"
+          echo "CURL_CA_BUNDLE=$cert" >> "$GITHUB_ENV"
+          if [ "$(uname -s)" = "Linux" ]; then
+            if [ "$(id -u)" -ne 0 ]; then S=sudo; else S=; fi
+            $S cp "$cert" /usr/local/share/ca-certificates/clebsong-root-ca.crt
+            $S update-ca-certificates
+          else
+            # git and curl on the macOS runner read the system keychain.
+            sudo security add-trusted-cert -d -r trustRoot \
+              -k /Library/Keychains/System.keychain "$cert"
+          fi
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Install dependencies
         # `npm ci` pins the resolved tree, including the package.json overrides
@@ -204,6 +273,9 @@ jobs:
           path: "*.vsix"
           retention-days: 1
 
+  # Catch cross-platform compilation failures before they reach the release pipeline.
+  # Mirrors the release.yml publish-binaries matrix (minus Windows — see #42).
+  # Only runs on main-targeted PRs and pushes — stacked PRs skip this.
   cross-compile:
     if: github.event_name != 'pull_request' || github.base_ref == 'main'
     strategy:
@@ -226,6 +298,29 @@ jobs:
     permissions:
       contents: read
     steps:
+      # Needed on the self-hosted Gitea instance (internal CA); harmless on
+      # GitHub-hosted runners.
+      - name: Trust the internal CA
+        run: |
+          set -euo pipefail
+          cert="$RUNNER_TEMP/clebsong-root-ca.crt"
+          printf '%s\n' "$CLEBSONG_ROOT_CA_PEM" > "$cert"
+          # Node ships its own bundle and ignores the system store, so every
+          # actions/*.js step (upload-artifact, cache) must be handed the root
+          # explicitly. This used to be guarded by runner.os == 'Linux', which
+          # skipped the step on macOS entirely and made upload-artifact fail
+          # with "unable to verify the first certificate".
+          echo "NODE_EXTRA_CA_CERTS=$cert" >> "$GITHUB_ENV"
+          echo "CURL_CA_BUNDLE=$cert" >> "$GITHUB_ENV"
+          if [ "$(uname -s)" = "Linux" ]; then
+            if [ "$(id -u)" -ne 0 ]; then S=sudo; else S=; fi
+            $S cp "$cert" /usr/local/share/ca-certificates/clebsong-root-ca.crt
+            $S update-ca-certificates
+          else
+            # git and curl on the macOS runner read the system keychain.
+            sudo security add-trusted-cert -d -r trustRoot \
+              -k /Library/Keychains/System.keychain "$cert"
+          fi
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Install system dependencies
         if: runner.os == 'Linux'
@@ -237,126 +332,52 @@ jobs:
         with:
           key: ${{ matrix.target }}
           cache-bin: "false"
-      - run: cargo build --locked --release ${{ matrix.cargo_target }}
+      - run: cargo build --release ${{ matrix.cargo_target }}
       # Each matrix leg builds for its own architecture, so this runs the binary
       # natively -- including aarch64, now that it builds on the spacelab runner
       # rather than being cross-compiled on cosmos.
       - name: Smoke-test the binary
         run: ./target/release/pali --version
+      - name: Upload binary artifact
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pali-linux-x86_64
+          path: target/release/pali
+          retention-days: 1
 
   audit:
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
+      # Needed on the self-hosted Gitea instance (internal CA); harmless on
+      # GitHub-hosted runners.
+      - name: Trust the internal CA
+        run: |
+          set -euo pipefail
+          cert="$RUNNER_TEMP/clebsong-root-ca.crt"
+          printf '%s\n' "$CLEBSONG_ROOT_CA_PEM" > "$cert"
+          # Node ships its own bundle and ignores the system store, so every
+          # actions/*.js step (upload-artifact, cache) must be handed the root
+          # explicitly. This used to be guarded by runner.os == 'Linux', which
+          # skipped the step on macOS entirely and made upload-artifact fail
+          # with "unable to verify the first certificate".
+          echo "NODE_EXTRA_CA_CERTS=$cert" >> "$GITHUB_ENV"
+          echo "CURL_CA_BUNDLE=$cert" >> "$GITHUB_ENV"
+          if [ "$(uname -s)" = "Linux" ]; then
+            if [ "$(id -u)" -ne 0 ]; then S=sudo; else S=; fi
+            $S cp "$cert" /usr/local/share/ca-certificates/clebsong-root-ca.crt
+            $S update-ca-certificates
+          else
+            # git and curl on the macOS runner read the system keychain.
+            sudo security add-trusted-cert -d -r trustRoot \
+              -k /Library/Keychains/System.keychain "$cert"
+          fi
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master (2026-03-27)
-        with:
-          toolchain: stable
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check
-          rust-version: stable
-
-  coverage:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: rust-default
-            rust_features: ""
-            js_tests: false
-          - name: rust-all-features
-            rust_features: "--all-features"
-            js_tests: false
-          - name: js-tests
-            rust_features: ""
-            js_tests: true
-    steps:
-      - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
-      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master (2026-03-27)
-        with:
-          toolchain: stable
-          components: llvm-tools-preview
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-        with:
-          key: coverage-${{ matrix.name }}
-          cache-bin: "false"
-      - name: Install cargo-nextest
-        run: |
-          set -euo pipefail
-          case "$(uname -m)" in
-            x86_64)
-              arch=x86_64-unknown-linux-gnu
-              sum=a098eed56f2dd88c7fdca1e554a6b99fa1ffbd2a7a1c41b865700112981f6f52
-              ;;
-            aarch64|arm64)
-              arch=aarch64-unknown-linux-gnu
-              sum=2a6d9e1dd07b56b4bbe03b73778615dbff2f623e54c8dd4fa9642901e11494ee
-              ;;
-            *)
-              echo "unsupported architecture: $(uname -m)" >&2
-              exit 1
-              ;;
-          esac
-          curl -fsSL --proto '=https' "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.136/cargo-nextest-0.9.136-${arch}.tar.gz" \
-            -o /tmp/cargo-nextest.tar.gz
-          echo "${sum}  /tmp/cargo-nextest.tar.gz" | sha256sum -c -
-          if [ "$(id -u)" -ne 0 ]; then S=sudo; else S=; fi
-          $S tar xzf /tmp/cargo-nextest.tar.gz -C /usr/local/bin
-      - name: Install cargo-llvm-cov
-        if: matrix.js_tests != 'true'
-        run: |
-          set -euo pipefail
-          case "$(uname -m)" in
-            x86_64)
-              arch=x86_64-unknown-linux-gnu
-              sum=b3f68e625481fed9b16444174f3fa5ebcdbde4a1878803a35eabe2dcefcdc41a
-              ;;
-            aarch64|arm64)
-              arch=aarch64-unknown-linux-gnu
-              sum=abf5f13c1520f8756d2192bfaaeadb0208f5b7eaa8cadc15bf847befa42b7360
-              ;;
-            *)
-              echo "unsupported architecture: $(uname -m)" >&2
-              exit 1
-              ;;
-          esac
-          curl -fsSL --proto '=https' "https://github.com/taiki-e/cargo-llvm-cov/releases/download/v0.9.1/cargo-llvm-cov-${arch}.tar.gz" \
-            -o /tmp/cargo-llvm-cov.tar.gz
-          echo "${sum}  /tmp/cargo-llvm-cov.tar.gz" | sha256sum -c -
-          if [ "$(id -u)" -ne 0 ]; then S=sudo; else S=; fi
-          $S tar xzf /tmp/cargo-llvm-cov.tar.gz -C /usr/local/bin
-      - name: Run Rust tests with coverage
-        if: matrix.js_tests != 'true'
-        run: |
-          set -euo pipefail
-          mkdir -p coverage
-          cargo llvm-cov --profile test --workspace ${{ matrix.rust_features }} --no-fail-fast \
-            --lcov --output-path coverage/lcov.info
-      - name: Install npm dependencies and build
-        if: matrix.js_tests == 'true'
-        run: |
-          set -euo pipefail
-          npm ci --ignore-scripts
-          npm run build:binary
-      - name: Run JS/TS tests with coverage
-        if: matrix.js_tests == 'true'
-        run: |
-          set -euo pipefail
-          npm run test:coverage
-      - name: Upload coverage artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: coverage-${{ matrix.name }}
-          path: |
-            coverage/lcov.info
-          retention-days: 7
-          if-no-files-found: error
 
   semver-checks:
     runs-on: ubuntu-latest
@@ -364,6 +385,29 @@ jobs:
     permissions:
       contents: read
     steps:
+      # Needed on the self-hosted Gitea instance (internal CA); harmless on
+      # GitHub-hosted runners.
+      - name: Trust the internal CA
+        run: |
+          set -euo pipefail
+          cert="$RUNNER_TEMP/clebsong-root-ca.crt"
+          printf '%s\n' "$CLEBSONG_ROOT_CA_PEM" > "$cert"
+          # Node ships its own bundle and ignores the system store, so every
+          # actions/*.js step (upload-artifact, cache) must be handed the root
+          # explicitly. This used to be guarded by runner.os == 'Linux', which
+          # skipped the step on macOS entirely and made upload-artifact fail
+          # with "unable to verify the first certificate".
+          echo "NODE_EXTRA_CA_CERTS=$cert" >> "$GITHUB_ENV"
+          echo "CURL_CA_BUNDLE=$cert" >> "$GITHUB_ENV"
+          if [ "$(uname -s)" = "Linux" ]; then
+            if [ "$(id -u)" -ne 0 ]; then S=sudo; else S=; fi
+            $S cp "$cert" /usr/local/share/ca-certificates/clebsong-root-ca.crt
+            $S update-ca-certificates
+          else
+            # git and curl on the macOS runner read the system keychain.
+            sudo security add-trusted-cert -d -r trustRoot \
+              -k /Library/Keychains/System.keychain "$cert"
+          fi
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
@@ -376,3 +420,69 @@ jobs:
           cache-bin: "false"
       - uses: obi1kenobi/cargo-semver-checks-action@6b69fcf40e9b5fb17adeb57e4b6ecd020649a239 # v2.9
 
+  build:
+    if: github.event_name != 'pull_request' || github.base_ref == 'main'
+    needs: [lint, clippy, test, audit, semver-checks, cross-compile]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      # Needed on the self-hosted Gitea instance (internal CA); harmless on
+      # GitHub-hosted runners.
+      - name: Trust the internal CA
+        run: |
+          set -euo pipefail
+          cert="$RUNNER_TEMP/clebsong-root-ca.crt"
+          printf '%s\n' "$CLEBSONG_ROOT_CA_PEM" > "$cert"
+          # Node ships its own bundle and ignores the system store, so every
+          # actions/*.js step (upload-artifact, cache) must be handed the root
+          # explicitly. This used to be guarded by runner.os == 'Linux', which
+          # skipped the step on macOS entirely and made upload-artifact fail
+          # with "unable to verify the first certificate".
+          echo "NODE_EXTRA_CA_CERTS=$cert" >> "$GITHUB_ENV"
+          echo "CURL_CA_BUNDLE=$cert" >> "$GITHUB_ENV"
+          if [ "$(uname -s)" = "Linux" ]; then
+            if [ "$(id -u)" -ne 0 ]; then S=sudo; else S=; fi
+            $S cp "$cert" /usr/local/share/ca-certificates/clebsong-root-ca.crt
+            $S update-ca-certificates
+          else
+            # git and curl on the macOS runner read the system keychain.
+            sudo security add-trusted-cert -d -r trustRoot \
+              -k /Library/Keychains/System.keychain "$cert"
+          fi
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Download pre-built binary
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: pali-linux-x86_64
+          path: .ci-bin
+      - name: Prepare binary
+        run: chmod +x .ci-bin/pali
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix=sha-,format=long
+            type=raw,value=latest,enable={{is_default_branch}}
+      - uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: Dockerfile.ci
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: true
+          sbom: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -1,26 +1,3 @@
-## [1.1.0] - 2026-11-04
-
-### Changed
-
-- **Git reads go through `gix`; merge and push stay on libgit2.** Resolving
-  HEAD, comparing two commits' trees and reading blobs now use `gix` behind
-  `pali/src/git_read.rs`, so reads no longer take the writer's mutex and cannot
-  block behind a commit. Repository init, staging, commits, checkout, fetch,
-  merge and push remain on `git2`, because gitoxide 0.90 has no shippable merge
-  or push. The change-set contract is unchanged. `MemoryError` gains a `Gix`
-  variant on its non-exhaustive enum, and `gix` is built without transport, TLS
-  or credential features, so the TLS consolidation in ADR-0023 is unaffected.
-  See ADR-0053.
-- **`scan-repos` is folded into `scan`.** `pali scan` is now git-aware when the
-  workspace is a repository: it writes the security report, the manifest and
-  the codebase insights, and accepts `--blame`, `--max-file-bytes`,
-  `--save-memories`, `--repo-path` and `--scope`. A plain directory still gets
-  the file and secret report. The extension exposes one
-  `Pali: Scan Workspace` command; `pali.scanRepositories` is removed.
-- **The repository scanner enumerates untracked files through `gix` status**
-  instead of libgit2. Ignore rules and per-file expansion are unchanged; a
-  parity test pins both implementations to the same set of paths.
-
 ## [1.0.1] - 2026-11-02
 
 - **aarch64 Linux builds assemble again.** `gemm-common` (via candle-core)
@@ -61,21 +38,6 @@
 
 ### Added
 
-- **`pali scan-repos`: git-aware repository scanner.** It scans the workspace
-  directory's own git repository (nested repositories are not followed) and
-  enumerates tracked plus untracked-but-not-ignored files, then writes
-  `<artifacts>/security-scan.json`,
-  `<artifacts>/scan-manifest.jsonl`, and `<artifacts>/insights.json`. The
-  insights are deterministic counts and paths — language mix, top-level areas,
-  largest files, TODO/FIXME markers, test-file ratio, project files, and recent
-  commit subjects — never model output or file content. `--save-memories`
-  commits the same digest as one `codebase-insights` memory in the git-backed
-  pali memory repository (default `~/.memory-mcp`; `--scope` defaults to the
-  workspace directory name). The manifest records the repository, path,
-  language, HEAD commit, SHA-256 content hash, the last five commit subjects,
-  and — with `--blame` — per-line commit IDs. Credential-shaped paths and
-  contents are excluded whole-file rather than redacted, and findings record
-  only the rule, path, and line, never the matched value.
 - **Optional in-memory HTTPS git token.** `PALI_GIT_TOKEN` authenticates HTTPS
   remotes for the life of the process, for environments without a git
   credential helper (the VS Code extension supplies it from secret storage).

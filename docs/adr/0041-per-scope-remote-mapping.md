@@ -3,12 +3,6 @@
 ## Status
 Accepted
 
-Amended 2026-11-05: the file is resolved from `PALI_CONFIG`, then
-`dirs::config_dir()/memory-mcp/config.toml` — `~/.config/memory-mcp/config.toml`
-on Linux, `~/Library/Application Support/memory-mcp/config.toml` on macOS, and
-`%APPDATA%\memory-mcp\config.toml` on Windows. The `MEMORY_MCP_CONFIG` name and
-the Linux-only path in the decision below are historical.
-
 ## Context
 memory-mcp uses a single git repo (`~/.memory-mcp`) with a single `origin` remote. All scopes share the same remote. This prevents constructs from isolating proprietary data: a construct working with NDA-covered code needs memories in certain scopes to sync to a private repo, while personal and shared memories continue syncing to the existing shared repos.
 

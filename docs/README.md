@@ -12,7 +12,7 @@ first success.
 - [Tool reference](tools.md) — tool arguments, retrieval behavior, scopes, and
   feedback
 - [Configuration](configuration.md) — server flags, environment variables,
-  git credentials, and model settings
+  authentication, and model settings
 - [Deployment](deployment.md) — run the container image
 - [Security](security.md) — trust boundaries, credentials, container hardening,
   and supply-chain controls
