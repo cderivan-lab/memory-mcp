@@ -29,7 +29,7 @@
     "uninstall": "code --uninstall-extension cderivan.pali-memory",
     "reinstall": "npm run uninstall & npm run install",
     "test:e2e": "vscode-test",
-    "test:e2e:ui": "node scripts/e2e-ui-fixtures.mjs && extest setup-and-run test/e2e-ui/download-notification.test.js --code_settings .e2e-ui/settings.json --storage \"${PALI_E2E_STORAGE:-test-resources}\"",
+    "test:e2e:ui": "node scripts/e2e-ui-fixtures.mjs && node scripts/run-e2e-ui.mjs",
     "test:coverage": "node  --experimental-test-coverage --test test/extension.test.js",
     "test:vsix": "node --test test/vsix.test.js",
     "clean": "rm -rf out node_modules target pali-memory-*.vsix tsconfig.tsbuildinfo",
@@ -117,6 +117,11 @@
             "error",
             "off"
           ]
+        },
+        "pali.modelPath": {
+          "default": "",
+          "description": "Directory containing the embedding model files (config.json, tokenizer.json, model.safetensors). Empty uses the model auto-installed by the extension, or the platform default when none is installed. A directory missing any of the files is reported and ignored.",
+          "type": "string"
         }
       },
       "title": "Pali"

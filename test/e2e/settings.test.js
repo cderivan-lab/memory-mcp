@@ -17,6 +17,9 @@ const os = require("node:os");
 const path = require("node:path");
 const vscode = require("vscode");
 
+// The model layout the server resolves; the installer and the crate share it.
+const { files: MODEL_FILES } = require("../../src/model-manifest.json");
+
 const EXTENSION_ID = "cderivan.pali-memory";
 const SECTION = "pali";
 
@@ -68,8 +71,11 @@ function workspaceRoot() {
   return folders[0].uri.fsPath;
 }
 
-function hookConfigPath(root) {
-  return path.join(root, ".github", "hooks", "pali.json");
+/** The user-level hooks file; the e2e env redirects it away from the real home. */
+function hookConfigPath() {
+  const dir = process.env.PALI_HOOKS_DIR;
+  assert.ok(dir, "the e2e config must set PALI_HOOKS_DIR");
+  return path.join(dir, "pali.json");
 }
 
 /** Apply one settings profile at workspace scope, one key at a time. */
@@ -85,8 +91,8 @@ async function applyProfile(profile) {
  * from an async configuration listener, so the write is never synchronous with
  * `config.update`; a bounded poll keeps the assertion from racing it.
  */
-async function waitForHookConfig(root, predicate, timeoutMs = 20_000) {
-  const target = hookConfigPath(root);
+async function waitForHookConfig(predicate, timeoutMs = 20_000) {
+  const target = hookConfigPath();
   const deadline = Date.now() + timeoutMs;
   let last = "not written yet";
   while (Date.now() < deadline) {
@@ -143,7 +149,7 @@ suite("pali extension end-to-end", () => {
     // Wait for every variable this test asserts: settings are applied one key
     // at a time, so matching on `scope` alone can observe a half-applied
     // profile (the log level lands later in the same loop).
-    const config = await waitForHookConfig(root, (parsed) => {
+    const config = await waitForHookConfig((parsed) => {
       const bash = String(parsed.hooks?.sessionStart?.[0]?.bash);
       return (
         bash.includes(`PALI_BIN='${stub.file}'`) &&
@@ -155,6 +161,11 @@ suite("pali extension end-to-end", () => {
 
     assert.equal(config.version, 1);
     assert.deepEqual(Object.keys(config.hooks).sort(), Object.keys(EVENT_MODES).sort());
+    assert.equal(
+      fs.existsSync(path.join(root, ".github", "hooks", "pali.json")),
+      false,
+      "activation must install hooks once at the user level, not in the workspace",
+    );
 
     for (const [event, mode] of Object.entries(EVENT_MODES)) {
       assert.equal(config.hooks[event].length, 1, `${event} must have one command`);
@@ -189,7 +200,6 @@ suite("pali extension end-to-end", () => {
     });
 
     const config = await waitForHookConfig(
-      root,
       (parsed) => {
         const bash = String(parsed.hooks?.agentStop?.[0]?.bash);
         return (
@@ -210,7 +220,7 @@ suite("pali extension end-to-end", () => {
     await applyProfile({ scope: "team's", repoPath: "/tmp/team's repo", logLevel: "warn" });
 
     const quotedScope = `PALI_SCOPE=${bashQuote("team's")}`;
-    const config = await waitForHookConfig(root, (parsed) =>
+    const config = await waitForHookConfig((parsed) =>
       String(parsed.hooks?.userPromptTransformed?.[0]?.bash).includes(quotedScope),
     );
 
@@ -226,19 +236,137 @@ suite("pali extension end-to-end", () => {
     // Parse rather than compare the raw text: the file is JSON, so its
     // backslashes are escaped on disk and only the parsed value is the shell
     // string the hook would actually run.
-    const before = JSON.parse(fs.readFileSync(hookConfigPath(root), "utf8"));
+    const before = JSON.parse(fs.readFileSync(hookConfigPath(), "utf8"));
     assert.ok(String(before.hooks.agentStop[0].bash).includes(staleScope), before);
 
     await applyProfile({ scope: "other/team" });
 
-    const after = await waitForHookConfig(root, (parsed) =>
+    const after = await waitForHookConfig((parsed) =>
       String(parsed.hooks?.agentStop?.[0]?.bash).includes("PALI_SCOPE='other/team'"),
     );
     assert.equal(after.version, 1);
-    const written = JSON.parse(fs.readFileSync(hookConfigPath(root), "utf8"));
+    const written = JSON.parse(fs.readFileSync(hookConfigPath(), "utf8"));
     assert.ok(
       !String(written.hooks.agentStop[0].bash).includes(staleScope),
       "the stale profile must be gone, not appended",
     );
+  });
+
+  test("pali.modelPath reaches the hooks and the MCP server definition", async () => {
+    const extension = vscode.extensions.getExtension(EXTENSION_ID);
+    assert.ok(extension, "the extension under test must be installed");
+    assert.ok(
+      extension.packageJSON.contributes?.configuration?.properties?.["pali.modelPath"],
+      "pali.modelPath must be a contributed setting",
+    );
+
+    // Spaces in the path keep the per-shell quoting honest. The directory has
+    // to be usable, or activation withholds it (see the next test).
+    const modelRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pali-e2e-model-"));
+    const modelPath = path.join(modelRoot, "pali e2e models", "bge-small-en-v1.5");
+    fs.mkdirSync(modelPath, { recursive: true });
+    for (const name of Object.values(MODEL_FILES)) {
+      fs.writeFileSync(path.join(modelPath, name), "model file\n", "utf8");
+    }
+
+    try {
+      await applyProfile({ modelPath });
+
+      // The hook file is written by the extension's own settings read, so this
+      // also proves activation exports `pali.modelPath` to every hook event.
+      const quotedModel = `PALI_MODEL_DIR=${bashQuote(modelPath)}`;
+      const hooks = await waitForHookConfig((parsed) =>
+        Object.keys(EVENT_MODES).every((event) =>
+          String(parsed.hooks?.[event]?.[0]?.bash).includes(quotedModel),
+        ),
+      );
+
+      for (const [event, mode] of Object.entries(EVENT_MODES)) {
+        const [entry] = hooks.hooks[event];
+        assert.ok(entry.bash.includes(quotedModel), `${event}: ${entry.bash}`);
+        assert.ok(
+          entry.powershell.includes(`PALI_MODEL_DIR='${modelPath.replace(/'/g, "''")}'`),
+          `${event}: ${entry.powershell}`,
+        );
+        assert.match(entry.bash, new RegExp(`copilot-hooks\\.mjs' ${mode}$`), event);
+      }
+
+      // The editor has no read-back for a registered provider's definitions, so
+      // run the definition builder `activate` uses with the setting the editor
+      // actually returned. The hook assertion above proves the extension's own
+      // settings read; this pins modelPath -> PALI_MODEL_DIR in the definition.
+      const { mcpServerDefinition } = require(
+        path.join(extension.extensionPath, "out", "utils", "lib"),
+      );
+      const config = vscode.workspace.getConfiguration(SECTION);
+      const definition = mcpServerDefinition(
+        {
+          binPath: String(config.get("path") || "pali"),
+          repoPath: String(config.get("repoPath") || "").trim(),
+          remoteUrl: String(config.get("remoteUrl") || "").trim(),
+          branch: String(config.get("branch") || "main").trim() || "main",
+          scope: String(config.get("scope") || "").trim(),
+          modelPath: String(config.get("modelPath") || "").trim(),
+        },
+        undefined,
+      );
+
+      assert.equal(
+        config.get("modelPath"),
+        modelPath,
+        "pali.modelPath must round-trip through the editor's configuration",
+      );
+      assert.equal(
+        definition.env.PALI_MODEL_DIR,
+        modelPath,
+        "the MCP server definition must launch with the configured model directory",
+      );
+    } finally {
+      await applyProfile({ modelPath: "" });
+      fs.rmSync(modelRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("an unusable pali.modelPath is withheld instead of failing the server", async () => {
+    // Start from a usable value so the rewrite below is observable: after the
+    // bad directory is set, neither path may remain in the hook commands.
+    const modelRoot = fs.mkdtempSync(path.join(os.tmpdir(), "pali-e2e-model-bad-"));
+    const validPath = path.join(modelRoot, "valid", "bge-small-en-v1.5");
+    fs.mkdirSync(validPath, { recursive: true });
+    for (const name of Object.values(MODEL_FILES)) {
+      fs.writeFileSync(path.join(validPath, name), "model file\n", "utf8");
+    }
+    const invalidPath = path.join(modelRoot, "invalid", "bge-small-en-v1.5");
+    fs.mkdirSync(invalidPath, { recursive: true });
+    fs.writeFileSync(path.join(invalidPath, MODEL_FILES.config), "{}\n", "utf8");
+
+    try {
+      await applyProfile({ modelPath: validPath });
+      await waitForHookConfig((parsed) =>
+        Object.keys(EVENT_MODES).every((event) =>
+          String(parsed.hooks?.[event]?.[0]?.bash).includes(
+            `PALI_MODEL_DIR=${bashQuote(validPath)}`,
+          ),
+        ),
+      );
+
+      await applyProfile({ modelPath: invalidPath });
+      const hooks = await waitForHookConfig((parsed) =>
+        Object.keys(EVENT_MODES).every((event) => {
+          const bash = String(parsed.hooks?.[event]?.[0]?.bash);
+          return !bash.includes(validPath) && !bash.includes(invalidPath);
+        }),
+      );
+
+      for (const [event, mode] of Object.entries(EVENT_MODES)) {
+        const [entry] = hooks.hooks[event];
+        assert.ok(!entry.bash.includes(invalidPath), `${event}: ${entry.bash}`);
+        assert.ok(!entry.powershell.includes(invalidPath), `${event}: ${entry.powershell}`);
+        assert.match(entry.bash, new RegExp(`copilot-hooks\\.mjs' ${mode}$`), event);
+      }
+    } finally {
+      await applyProfile({ modelPath: "" });
+      fs.rmSync(modelRoot, { recursive: true, force: true });
+    }
   });
 });

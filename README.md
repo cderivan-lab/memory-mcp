@@ -6,9 +6,9 @@ crate is built from `pali/`
 - registers the `pali` MCP server through VS Code's MCP server definition
   provider, so enabling the extension is enough — no command, install link, or
   manual configuration
-- writes `.github/hooks/pali.json` so the Copilot hooks recall project memories
-  at session start, inject relevant memories per prompt, and capture a session
-  digest when the agent stops
+- writes the user-level `~/.copilot/hooks/pali.json` once per machine, so the
+  Copilot hooks recall project memories at session start, inject relevant
+  memories per prompt, and capture a session digest when the agent stops
 
 The hooks themselves live in `hooks/` and are unchanged from the standalone
 Copilot hook scripts.
@@ -22,6 +22,7 @@ Copilot hook scripts.
 | `pali.remoteUrl` | empty   | Git remote (HTTPS/SSH URL or absolute local path); empty stays local-only |
 | `pali.branch`    | `main`  | Branch used for push and pull                                             |
 | `pali.scope`     | empty   | Hook memory scope; empty derives it from the git repo name                |
+| `pali.modelPath` | empty   | Embedding model directory; empty uses the model the extension installed  |
 | `pali.logLevel`  | `info`  | Log level for the extension, the MCP server, and the hooks                |
 
 `remoteUrl` and `branch` are passed to the MCP server as `PALI_REMOTE_URL` and

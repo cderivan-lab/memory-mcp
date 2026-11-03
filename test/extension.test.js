@@ -18,6 +18,7 @@ const {
   installModel,
   MODEL_FILES,
   modelDir,
+  modelPathProblem,
   parseLfsPointer,
   prepare,
   releaseAssetName,
@@ -335,6 +336,46 @@ test("the model is only considered installed when all three files exist", async 
   }
 });
 
+test("an unusable pali.modelPath names what is missing", async () => {
+  const root = join(tmpdir(), `pali-test-model-path-${Date.now()}`);
+  const dir = join(root, "bge-small-en-v1.5");
+  try {
+    assert.match(
+      await modelPathProblem(dir),
+      /does not exist/,
+      "a missing directory is reported",
+    );
+
+    const file = join(root, "not-a-dir");
+    await mkdir(root, { recursive: true });
+    await writeFile(file, "", "utf8");
+    assert.match(await modelPathProblem(file), /not a directory/);
+
+    await mkdir(dir, { recursive: true });
+    const empty = await modelPathProblem(dir);
+    for (const name of MODEL_FILES) {
+      assert.ok(empty.includes(name), `${name} must be reported missing`);
+    }
+
+    await writeFile(join(dir, MODEL_FILES[0]), "{}\n", "utf8");
+    await writeFile(join(dir, MODEL_FILES[1]), "{}\n", "utf8");
+    const partial = await modelPathProblem(dir);
+    assert.ok(!partial.includes(MODEL_FILES[0]), partial);
+    assert.ok(partial.includes(MODEL_FILES[2]), partial);
+
+    await writeFile(join(dir, MODEL_FILES[2]), "weights", "utf8");
+    assert.equal(await modelPathProblem(dir), undefined, "all three files are usable");
+
+    await writeFile(join(dir, MODEL_FILES[2]), "", "utf8");
+    assert.ok(
+      (await modelPathProblem(dir)).includes(MODEL_FILES[2]),
+      "an empty file is not usable",
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("LFS pointers parse, real model files do not", () => {
   const oid = "a".repeat(64);
   const pointer = parseLfsPointer(
@@ -350,6 +391,41 @@ test("an installed model is exported to the server as PALI_MODEL_DIR", () => {
     token,
   );
   assert.equal(definition.env.PALI_MODEL_DIR, "/storage/models/bge-small-en-v1.5");
+});
+
+test("pali.modelPath is exported as PALI_MODEL_DIR and wins over the installed model", () => {
+  const configured = mcpServerDefinition(
+    { ...settings, modelPath: "/custom/models/bge-small-en-v1.5" },
+    token,
+  );
+  assert.equal(configured.env.PALI_MODEL_DIR, "/custom/models/bge-small-en-v1.5");
+
+  const both = mcpServerDefinition(
+    { ...settings, modelPath: "/custom/models", modelDir: "/storage/models/bge-small-en-v1.5" },
+    token,
+  );
+  assert.equal(both.env.PALI_MODEL_DIR, "/custom/models");
+});
+
+test("hook commands carry the model directory for the hook-spawned server", () => {
+  const entry = buildHookConfig(
+    "/ext",
+    { ...settings, modelPath: "/custom/models", modelDir: "/storage/models/bge-small-en-v1.5" },
+  ).hooks.sessionStart[0];
+  assert.match(entry.bash, /PALI_MODEL_DIR='\/custom\/models'/);
+  assert.match(entry.powershell, /\$env:PALI_MODEL_DIR='\/custom\/models';/);
+
+  // No modelPath: the installed model dir is used instead.
+  const installed = buildHookConfig(
+    "/ext",
+    { ...settings, modelDir: "/storage/models/bge-small-en-v1.5" },
+  ).hooks.sessionStart[0];
+  assert.match(installed.bash, /PALI_MODEL_DIR='\/storage\/models\/bge-small-en-v1\.5'/);
+
+  // Neither set: no variable, so the server falls back to its own resolution.
+  const bare = buildHookConfig("/ext", settings).hooks.sessionStart[0];
+  assert.doesNotMatch(bare.bash, /PALI_MODEL_DIR/);
+  assert.doesNotMatch(bare.powershell, /PALI_MODEL_DIR/);
 });
 
 test("no token means no credential variable, even for HTTPS", () => {

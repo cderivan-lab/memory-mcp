@@ -274,6 +274,33 @@ export async function resolveModelDir(storagePath: string): Promise<string | nul
   return dir;
 }
 
+/**
+ * Explain why a directory cannot serve as `PALI_MODEL_DIR`, or return
+ * undefined when every required model file is present. An empty file is not
+ * usable either: the server loads the weights at startup, so a truncated
+ * install would fail there instead.
+ */
+export async function modelPathProblem(dir: string): Promise<string | undefined> {
+  try {
+    const entry = await fs.stat(dir);
+    if (!entry.isDirectory()) return `"${dir}" is not a directory`;
+  } catch {
+    return `"${dir}" does not exist`;
+  }
+
+  const missing: string[] = [];
+  for (const name of MODEL_FILES) {
+    try {
+      const st = await fs.stat(path.join(dir, name));
+      if (!st.isFile() || st.size === 0) missing.push(name);
+    } catch {
+      missing.push(name);
+    }
+  }
+  if (missing.length === 0) return undefined;
+  return `"${dir}" is missing ${missing.join(", ")}`;
+}
+
 /** One Git LFS pointer, as committed instead of the file body. */
 export interface LfsPointer {
   oid: string;

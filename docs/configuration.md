@@ -121,7 +121,12 @@ before starting the server.
 Model files are resolved from, in order:
 
 1. `PALI_MODEL_DIR` — a directory containing `config.json`, `tokenizer.json`,
-   and `model.safetensors`
+   and `model.safetensors`. The VS Code extension exports this from the
+   `pali.modelPath` setting (or, when that is empty, from the model it
+   auto-installed), so setting `pali.modelPath` in VS Code is the
+   configuration-side equivalent. A directory missing any of the files is
+   reported in an error notification and ignored, so the server starts on the
+   model the extension installed instead of failing with an opaque error.
 2. `<current-working-directory>/models/bge-small-en-v1.5` — the VS Code
    extension starts the server from the workspace folder, so a model vendored
    in the repository (or fetched there) is found without extra configuration

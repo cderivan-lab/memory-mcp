@@ -2,11 +2,14 @@
 // Registers the Pali memory MCP server and installs its GitHub Copilot hooks.
 
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { activate as installActivate } from './utils/install';
 import {
   bundledBinaryPath,
+  MODEL_FILES,
+  modelPathProblem,
   resolveModelDir,
   resolvePaliBinary,
 } from './utils/install_pali';
@@ -42,6 +45,40 @@ async function resolveBinary(
 }
 
 /**
+ * The last unusable `pali.modelPath` reported, so the provider and every hook
+ * rewrite do not repeat the same notification.
+ */
+let reportedModelPath: string | undefined;
+
+/**
+ * Accept `pali.modelPath` only when the directory holds the model files the
+ * server loads. A bad value is reported once and withheld from the server and
+ * the hooks: passing it on would only surface later as an opaque startup
+ * failure, and the server can still start on the installed model.
+ */
+async function usableModelPath(configured: string): Promise<string | undefined> {
+  if (!configured) {
+    reportedModelPath = undefined;
+    return undefined;
+  }
+  const problem = await modelPathProblem(configured);
+  if (!problem) {
+    reportedModelPath = undefined;
+    return configured;
+  }
+  if (reportedModelPath !== configured) {
+    reportedModelPath = configured;
+    const message =
+      `Pali: pali.modelPath is not usable — ${problem}. ` +
+      `The server needs ${MODEL_FILES.join(', ')}. ` +
+      'Fix the setting, or clear it to use the installed model.';
+    log.error(message);
+    void vscode.window.showErrorMessage(message);
+  }
+  return undefined;
+}
+
+/**
  * Read settings for the hooks and the server definition. The installed model
  * directory travels with the same binary resolution.
  */
@@ -60,35 +97,31 @@ async function settings(
     branch: String(config.get('branch') || 'main').trim() || 'main',
     scope: String(config.get('scope') || '').trim(),
     modelDir: modelDir ?? undefined,
+    modelPath: await usableModelPath(String(config.get('modelPath') || '').trim()),
     logLevel: normalizeLogLevel(config.get('logLevel')),
   };
 }
 
-function workspaceFolder(): vscode.WorkspaceFolder | undefined {
-  const folders = vscode.workspace.workspaceFolders;
-  return folders && folders.length ? folders[0] : undefined;
+/**
+ * The user-level Copilot hooks file. VS Code reads `<home>/.copilot/hooks/*.json`
+ * for every workspace, so one install covers every project instead of leaving
+ * a `.github/hooks/pali.json` copy behind in each one. `pali.scope` (or the
+ * hook's own git-repo derivation) still keeps memories per project.
+ *
+ * `PALI_HOOKS_DIR` overrides the directory so tests never write the real one.
+ */
+function hookConfigPath(): string {
+  const dir =
+    process.env.PALI_HOOKS_DIR || path.join(os.homedir(), '.copilot', 'hooks');
+  return path.join(dir, 'pali.json');
 }
 
-function hookConfigPath(folder: vscode.WorkspaceFolder): string {
-  return path.join(folder.uri.fsPath, '.github', 'hooks', 'pali.json');
-}
-
-/** Write .github/hooks/pali.json, leaving it untouched when it is current. */
+/** Write the user-level hooks file, leaving it untouched when it is current. */
 async function installHooks(
   context: vscode.ExtensionContext,
   quiet: boolean,
 ): Promise<boolean> {
-  const folder = workspaceFolder();
-  if (!folder) {
-    if (!quiet) {
-      vscode.window.showWarningMessage(
-        'Pali: open a workspace folder to install the hooks.',
-      );
-    }
-    return false;
-  }
-
-  const target = hookConfigPath(folder);
+  const target = hookConfigPath();
   const body = hookConfigBody(context.extensionPath, await settings(context));
   let current = '';
   try {

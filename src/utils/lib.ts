@@ -24,6 +24,8 @@ export interface ExtensionSettings {
   scope: string;
   // Directory of an auto-installed embedding model, when one is present.
   modelDir?: string;
+  // Explicit model directory from `pali.modelPath`; wins over `modelDir`.
+  modelPath?: string;
   // Log level for the extension, the MCP server, and the hooks (default
   // `info`). One knob drives the whole project's verbosity.
   logLevel?: LogLevel;
@@ -43,6 +45,9 @@ function hookCommand(
     // The hooks read the same level the extension and server use, so the
     // hook log at ~/.pali-hooks/hook.log stays consistent with the rest.
     ['PALI_HOOK_LOG_LEVEL', config.logLevel],
+    // The hook-spawned server embeds recall queries, so it needs the model
+    // too; the user's explicit model path wins over the installed copy.
+    ['PALI_MODEL_DIR', config.modelPath || config.modelDir],
   ].filter((pair): pair is [string, string] => Boolean(pair[1]));
 
   if (shell === 'bash') {
@@ -112,9 +117,11 @@ export function mcpServerDefinition(
   if (token && /^https?:\/\//i.test(config.remoteUrl || '')) {
     env.PALI_GIT_TOKEN = token;
   }
-  // The server refuses to start without model files. Point it at the copy the
-  // extension installed; without this it falls back to the platform data dir.
-  if (config.modelDir) env.PALI_MODEL_DIR = config.modelDir;
+  // The server refuses to start without model files. An explicit
+  // `pali.modelPath` wins; otherwise point it at the copy the extension
+  // installed; without either it falls back to the platform data dir.
+  if (config.modelPath) env.PALI_MODEL_DIR = config.modelPath;
+  else if (config.modelDir) env.PALI_MODEL_DIR = config.modelDir;
   // The server's tracing filter (RUST_LOG) mirrors the extension's log level
   // so `pali.logLevel` controls both sides of the pipe. The filter is scoped
   // to the `pali` crate so `debug` does not flood the server with dependency

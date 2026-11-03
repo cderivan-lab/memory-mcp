@@ -89,10 +89,11 @@ bounds a sample; files are sorted first, so the prefix is deterministic.
 
 In VS Code, the [Pali Memory extension](../README.md#install)
 registers the server for you: enabling the extension adds a `pali` MCP server
-built from the `pali.binPath`, `pali.repoPath`, `pali.remoteUrl`, and
-`pali.branch` settings, then starts it on demand. It also writes
-`.github/hooks/pali.json`, so Copilot recalls project memories at session
-start and captures a digest when the agent stops. VS Code may ask once to trust
+built from the `pali.binPath`, `pali.repoPath`, `pali.remoteUrl`,
+`pali.branch`, and `pali.modelPath` settings, then starts it on demand. It
+also writes the user-level
+`~/.copilot/hooks/pali.json` once per machine, so Copilot recalls project
+memories at session start and captures a digest when the agent stops. VS Code may ask once to trust
 the server.
 
 ## Store and retrieve a memory
