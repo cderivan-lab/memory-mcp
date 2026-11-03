@@ -24,9 +24,10 @@
     "package": "vsce package --baseContentUrl https://github.com/cderivan/memory-mcp/src/branch/main --baseImagesUrl https://github.com/cderivan/memory-mcp/raw/branch/main",
     "prepare": "npm run build && npm run icon",
     "postinstall": "node scripts/patch-url-parse.js",
+    "vscode:uninstall": "node ./out/uninstall.js",
     "test": "node --test test/extension.test.js",
-    "install": "code --install-extension pali-memory-*.vsix",
-    "uninstall": "code --uninstall-extension cderivan.pali-memory",
+    "pkginstall": "code --install-extension pali-memory-*.vsix",
+    "pkguninstall": "code --uninstall-extension cderivan.pali-memory",
     "reinstall": "npm run uninstall & npm run install",
     "test:e2e": "vscode-test",
     "test:e2e:ui": "node scripts/e2e-ui-fixtures.mjs && node scripts/run-e2e-ui.mjs",
@@ -72,6 +73,14 @@
       {
         "command": "pali.restart",
         "title": "Pali: Restart MCP Server"
+      },
+      {
+        "command": "pali.scan",
+        "title": "Pali: Scan Workspace"
+      },
+      {
+        "command": "pali.index",
+        "title": "Pali: Index Workspace"
       }
     ],
     "configuration": {

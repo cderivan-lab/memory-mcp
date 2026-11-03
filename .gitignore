@@ -28,3 +28,4 @@ test-resources/
 
 # Generated stub binary and settings for the UI e2e run.
 .e2e-ui/
+.pali/

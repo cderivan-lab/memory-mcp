@@ -2,6 +2,28 @@
 
 ## Changes
 
+- **The VSIX ships only runtime files.** Dev-only entries (`.vscode-test.mjs`,
+  `.freebuff/`, the hooks' `package.json`/lockfile, and the retired per-event
+  hook sources and tests) are excluded; the extension ships
+  `hooks/copilot-hooks.mjs` plus `hooks/pali-client.mjs`, which is all it runs.
+- **Uninstalling the extension removes its Copilot hook config.** A
+  `vscode:uninstall` script deletes `~/.copilot/hooks/pali.json` (or the file
+  under `PALI_HOOKS_DIR`) when the extension is uninstalled. The hook file
+  points into the extension directory, so a leftover copy made every hook
+  event fail with `MODULE_NOT_FOUND` once that directory was gone. A file at
+  the path that the extension did not write is left alone. Generated hook
+  commands also check that `copilot-hooks.mjs` exists and exit successfully
+  when it does not, so a stale hook file fails quietly instead of crashing
+  every event with `MODULE_NOT_FOUND`. Unit tests now redirect
+  `PALI_HOOKS_DIR` to a temp directory instead of overwriting the real hook
+  file with a throwaway extension path, and an end-to-end test covers the
+  uninstall/reinstall hook-file lifecycle.
+- **New `Pali: Scan Workspace` and `Pali: Index Workspace` commands.** They run
+  the CLI's `scan` and `index` subcommands against the first workspace folder,
+  writing `.pali/scan.json` and `.pali/index` without touching the memory
+  repository. `index` receives the same embedding model directory as the MCP
+  server, and both stream tracing output to the **Pali Memory** channel with a
+  cancellable progress notification and a one-line summary.
 - **Copilot hooks install once at the user level.** The extension now writes
   `~/.copilot/hooks/pali.json` (`%USERPROFILE%\.copilot\hooks\pali.json` on
   Windows) instead of a `.github/hooks/pali.json` copy in every workspace. One

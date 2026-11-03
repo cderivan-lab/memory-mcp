@@ -84,6 +84,30 @@ with no authentication at all.
 Hooks intentionally run local-only, so a slow remote cannot stall a session;
 the long-running MCP server syncs on its next push/pull.
 
+Uninstalling the extension runs its `vscode:uninstall` script, which removes
+`~/.copilot/hooks/pali.json` (or the file under `PALI_HOOKS_DIR`). The hooks
+point into the extension directory, so leaving the file behind would make
+every hook event fail until it was deleted by hand. A file at that path that
+the extension did not write is left untouched. Generated hook commands also
+check for the script before running it and exit successfully when it is gone,
+so a stale hook file cannot surface `MODULE_NOT_FOUND` stack traces.
+
+## Scan and index a workspace
+
+Two commands bootstrap the open folder into local retrieval artifacts under
+`<workspace>/.pali/`, without touching the memory repository:
+
+- **Pali: Scan Workspace** writes `.pali/scan.json`: the text-file inventory
+  plus potential-secret findings by path and line (the matched values are
+  never stored).
+- **Pali: Index Workspace** embeds the scanned chunks into `.pali/index` (a
+  usearch index plus `chunks.jsonl`), using the same embedding model the
+  server loads. Long runs report progress and can be cancelled.
+
+Both stream the CLI's tracing output to the **Pali Memory** channel and finish
+with a one-line summary. The folder comes from the first workspace folder, so
+open the checkout you want to bootstrap first.
+
 ## Build and install
 
 The extension is the product; the server crate in `pali/` is compiled

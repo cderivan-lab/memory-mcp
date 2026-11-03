@@ -12,6 +12,7 @@
 const { suite, test, suiteSetup, suiteTeardown } = globalThis;
 
 const assert = require("node:assert/strict");
+const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -32,8 +33,10 @@ const EVENT_MODES = {
 
 const COMMANDS = [
   "pali.clearToken",
+  "pali.index",
   "pali.install",
   "pali.restart",
+  "pali.scan",
   "pali.setToken",
   "pali.update",
 ];
@@ -368,5 +371,41 @@ suite("pali extension end-to-end", () => {
       await applyProfile({ modelPath: "" });
       fs.rmSync(modelRoot, { recursive: true, force: true });
     }
+  });
+
+  test("uninstall removes the hook file and the extension writes it again", async () => {
+    // The host loads the extension in development mode, which cannot be
+    // uninstalled from inside itself. Run the exact script the manifest's
+    // `vscode:uninstall` hook invokes, against the same redirected
+    // PALI_HOOKS_DIR the host uses: that is the file lifecycle a real
+    // uninstall produces.
+    const extension = vscode.extensions.getExtension(EXTENSION_ID);
+    assert.ok(extension, "the extension under test must be installed");
+    const target = hookConfigPath();
+    assert.ok(fs.existsSync(target), "activation must have written the hook file");
+
+    execFileSync(
+      process.execPath,
+      [path.join(extension.extensionPath, "out", "uninstall.js")],
+      { cwd: extension.extensionPath, env: { ...process.env }, stdio: "pipe" },
+    );
+    assert.equal(fs.existsSync(target), false, "uninstall must delete the hook file");
+
+    // A reinstall writes it again. The settings listener runs the same
+    // installHooks() that activation uses, so this observes the rewrite the
+    // reinstalled extension performs.
+    await applyProfile({ scope: "reinstalled" });
+    const config = await waitForHookConfig((parsed) =>
+      String(parsed.hooks?.sessionStart?.[0]?.bash).includes("PALI_SCOPE='reinstalled'"),
+    );
+    assert.equal(config.version, 1);
+    assert.ok(fs.existsSync(target), "the hook file must come back");
+
+    // The rewritten command is guarded, so a later uninstall that misses the
+    // file cannot crash the hook host with MODULE_NOT_FOUND.
+    assert.match(
+      config.hooks.sessionStart[0].bash,
+      /^\[ -f '[^']*copilot-hooks\.mjs' \] \|\| exit 0; /,
+    );
   });
 });

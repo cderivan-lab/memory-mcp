@@ -9,6 +9,8 @@ const {
   mcpServerDefinition,
   getReleaseTarget,
   releaseUrl,
+  workspaceBootstrapCommand,
+  workspaceBootstrapSummary,
 } = require("../out/utils/lib");
 const {
   binaryName,
@@ -84,6 +86,31 @@ test("hook commands carry the configured log level", () => {
   assert.doesNotMatch(bare.powershell, /PALI_HOOK_LOG_LEVEL/);
 });
 
+test("hook commands exit quietly when the extension directory is gone", () => {
+  // Regression: a hook file left behind by uninstall or an update pointed at a
+  // directory VS Code had deleted, so node failed to load the entry point and
+  // every event crashed with MODULE_NOT_FOUND.
+  const entry = buildHookConfig("/ext", settings).hooks.sessionStart[0];
+
+  assert.match(
+    entry.bash,
+    /^\[ -f '\/ext\/hooks\/copilot-hooks\.mjs' \] \|\| exit 0; PALI_BIN=/,
+    "bash must skip the hook when the script is missing",
+  );
+  assert.match(
+    entry.powershell,
+    /^if \(-not \(Test-Path -LiteralPath '\/ext\/hooks\/copilot-hooks\.mjs'\)\) \{ exit 0 \}; \$env:PALI_BIN=/,
+    "PowerShell must skip the hook when the script is missing",
+  );
+
+  // A present script still runs the same event mode.
+  assert.match(entry.bash, /copilot-hooks\.mjs' session-start$/);
+  assert.match(entry.powershell, /copilot-hooks\.mjs' session-start$/);
+
+  // The guard must not hide the profile from the hook environment.
+  assert.match(entry.bash, /PALI_SCOPE='org\/team'/);
+});
+
 test("single quotes are escaped per shell", () => {
   const entry = buildHookConfig("/ext", { ...settings, binPath: "pali's bin" }).hooks.agentStop[0];
 
@@ -106,6 +133,9 @@ test("MCP definition points at the configured stdio server", () => {
     command: "/opt/pali bin/pali",
     args: ["serve"],
     env: {
+      // The server always runs with ANSI colour off; MCP diagnostics are read
+      // as plain text in the output channel.
+      NO_COLOR: "1",
       PALI_BRANCH: "trunk",
       PALI_REPO_PATH: "/tmp/my repo",
       PALI_REMOTE_URL: "https://example.com/mem.git",
@@ -136,6 +166,72 @@ test("token is passed only for HTTPS remotes", () => {
   const local = mcpServerDefinition({ ...settings, remoteUrl: "/srv/memories.git" }, token);
   assert.equal(local.env.PALI_REMOTE_URL, "/srv/memories.git");
   assert.equal(local.env.PALI_GIT_TOKEN, undefined);
+});
+
+// --- Workspace bootstrap ---------------------------------------------------
+//
+// `Pali: Scan Workspace` and `Pali: Index Workspace` shell out to the CLI's
+// bootstrap subcommands. The invocation is pure so the flags and the model
+// handoff can be pinned without spawning the binary.
+
+test("scan runs against the workspace folder and needs no model", () => {
+  const invocation = workspaceBootstrapCommand("scan", settings, "/work/repo");
+
+  assert.deepEqual(invocation.args, ["scan", "--workspace", "/work/repo"]);
+  assert.equal(invocation.command, "/opt/pali bin/pali");
+  assert.equal(invocation.env.PALI_MODEL_DIR, undefined);
+  // Scan artifacts default to <workspace>/.pali, so no --artifacts is needed
+  // and nothing is written into the memory repository.
+  assert.doesNotMatch(invocation.args.join(" "), /--artifacts/);
+});
+
+test("index hands the embedding model to the CLI", () => {
+  const installed = workspaceBootstrapCommand(
+    "index",
+    { ...settings, modelDir: "/storage/models/bge-small-en-v1.5" },
+    "/work/repo",
+  );
+  assert.deepEqual(installed.args, ["index", "--workspace", "/work/repo"]);
+  assert.equal(installed.env.PALI_MODEL_DIR, "/storage/models/bge-small-en-v1.5");
+
+  // An explicit pali.modelPath wins, matching the server definition.
+  const configured = workspaceBootstrapCommand(
+    "index",
+    { ...settings, modelPath: "/custom/models", modelDir: "/storage/models/bge-small-en-v1.5" },
+    "/work/repo",
+  );
+  assert.equal(configured.env.PALI_MODEL_DIR, "/custom/models");
+});
+
+test("both bootstrap subcommands carry the configured log level", () => {
+  for (const kind of ["scan", "index"]) {
+    const invocation = workspaceBootstrapCommand(
+      kind,
+      { ...settings, logLevel: "debug" },
+      "/work/repo",
+    );
+    assert.equal(invocation.env.RUST_LOG, "pali=debug,info", kind);
+  }
+});
+
+test("bootstrap summaries report the artifacts the run produced", () => {
+  assert.equal(
+    workspaceBootstrapSummary(
+      "scan",
+      JSON.stringify({ files: 12, sensitive: 2, findings: 3, report: "/w/.pali/scan.json" }),
+    ),
+    "Pali: scanned 12 files (2 sensitive, 3 potential secrets). Report: /w/.pali/scan.json",
+  );
+  assert.equal(
+    workspaceBootstrapSummary(
+      "index",
+      JSON.stringify({ files: 12, chunks: 40, index: "/w/.pali/index" }),
+    ),
+    "Pali: indexed 40 chunks from 12 files. Index: /w/.pali/index",
+  );
+
+  // A binary that prints something other than JSON must not hide its output.
+  assert.equal(workspaceBootstrapSummary("scan", "plain summary\n"), "plain summary");
 });
 
 test("getReleaseTarget maps supported platforms", () => {
@@ -436,7 +532,7 @@ test("no token means no credential variable, even for HTTPS", () => {
 test("MCP definition omits empty optional settings", () => {
   const definition = mcpServerDefinition({ ...settings, repoPath: "", remoteUrl: "" });
 
-  assert.deepEqual(definition.env, { PALI_BRANCH: "trunk" });
+  assert.deepEqual(definition.env, { NO_COLOR: "1", PALI_BRANCH: "trunk" });
 });
 
 // --- Logging ---------------------------------------------------------------
@@ -984,6 +1080,13 @@ test("the MCP provider publishes nothing when no binary resolves", async () => {
   const extensionRoot = join(tmpdir(), `pali-test-ext-provider-${Date.now()}`);
   await mkdir(storage, { recursive: true });
 
+  // Activation writes the user-level hook config. Point it at the throwaway
+  // extension root: without this, the test overwrites the real
+  // ~/.copilot/hooks/pali.json with a path that is deleted afterwards, and
+  // every later Copilot hook fails with MODULE_NOT_FOUND.
+  const previousHooksDir = process.env.PALI_HOOKS_DIR;
+  process.env.PALI_HOOKS_DIR = join(extensionRoot, "hooks");
+
   const disposable = () => ({ dispose() {} });
   let provider;
   const fakeVscode = {
@@ -1041,6 +1144,53 @@ test("the MCP provider publishes nothing when no binary resolves", async () => {
     assert.deepEqual(await provider.provideMcpServerDefinitions(), []);
   } finally {
     Module._load = originalLoad;
+    if (previousHooksDir === undefined) delete process.env.PALI_HOOKS_DIR;
+    else process.env.PALI_HOOKS_DIR = previousHooksDir;
+    await rm(extensionRoot, { recursive: true, force: true });
     await rm(storage, { recursive: true, force: true });
+  }
+});
+
+// The hook file outlives the extension directory it points into, so uninstall
+// has to remove it; otherwise every Copilot hook event fails with
+// MODULE_NOT_FOUND until the user deletes it by hand.
+test("uninstall removes the hook config this extension wrote", async () => {
+  const { removeHookConfig } = require("../out/uninstall");
+  const dir = join(tmpdir(), `pali-test-uninstall-${Date.now()}`);
+  const target = join(dir, "pali.json");
+  const exists = () => stat(target).then(() => true, () => false);
+  await mkdir(dir, { recursive: true });
+  try {
+    assert.equal(removeHookConfig(dir), false, "a missing file is not an error");
+
+    // Another tool's file at the same path must survive the uninstall.
+    await writeFile(
+      target,
+      JSON.stringify({ version: 1, hooks: { agentStop: [{ bash: "node /x/other.mjs stop" }] } }),
+      "utf8",
+    );
+    assert.equal(removeHookConfig(dir), false, "a foreign hook file is left alone");
+    assert.equal(await exists(), true);
+
+    await writeFile(
+      target,
+      JSON.stringify({
+        version: 1,
+        hooks: {
+          agentStop: [
+            {
+              type: "command",
+              bash: "PALI_BIN='pali' node '/ext/hooks/copilot-hooks.mjs' stop",
+              powershell: "node '/ext/hooks/copilot-hooks.mjs' stop",
+            },
+          ],
+        },
+      }),
+      "utf8",
+    );
+    assert.equal(removeHookConfig(dir), true);
+    assert.equal(await exists(), false, "the Pali hook config is removed");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
   }
 });

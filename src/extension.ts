@@ -1,6 +1,7 @@
 // Pali Memory VS Code Extension
 // Registers the Pali memory MCP server and installs its GitHub Copilot hooks.
 
+import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -17,7 +18,13 @@ import type { ResolveResult } from './utils/install_pali';
 import {
   hookConfigBody,
   mcpServerDefinition,
+  workspaceBootstrapCommand,
+  workspaceBootstrapSummary,
   ExtensionSettings,
+} from './utils/lib';
+import type {
+  WorkspaceBootstrapCommand,
+  WorkspaceBootstrapKind,
 } from './utils/lib';
 import { log, normalizeLogLevel } from './utils/logger';
 
@@ -183,6 +190,124 @@ async function updateBinPathSetting(
   serverChanged.fire();
 }
 
+/** One `pali scan` / `pali index` run, from spawn to exit. */
+interface BootstrapOutcome {
+  code: number | null;
+  stdout: string;
+  cancelled: boolean;
+}
+
+/**
+ * Run a bootstrap subcommand, mirroring its stderr (the CLI's tracing output)
+ * into the output channel. Cancelling the progress notification kills the
+ * child, so a long `index` run does not have to finish to be abandoned.
+ */
+function runBootstrap(
+  invocation: WorkspaceBootstrapCommand,
+  output: vscode.OutputChannel,
+  cancellation: vscode.CancellationToken,
+): Promise<BootstrapOutcome> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(invocation.command, invocation.args, {
+      env: { ...process.env, ...invocation.env },
+      windowsHide: true,
+    });
+    let stdout = '';
+    let cancelled = false;
+    const subscription = cancellation.onCancellationRequested(() => {
+      cancelled = true;
+      child.kill();
+    });
+
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on('data', (chunk: Buffer) => {
+      output.append(chunk.toString());
+    });
+    child.on('error', (error) => {
+      subscription.dispose();
+      reject(error);
+    });
+    child.on('close', (code) => {
+      subscription.dispose();
+      resolve({ code, stdout, cancelled });
+    });
+  });
+}
+
+/**
+ * Run `pali scan` or `pali index` against the first workspace folder. The
+ * subcommands read the folder and write only under its `.pali/` artifacts
+ * directory, so this never touches the memory repository.
+ */
+async function bootstrapWorkspace(
+  kind: WorkspaceBootstrapKind,
+  context: vscode.ExtensionContext,
+  output: vscode.OutputChannel,
+): Promise<void> {
+  const label = kind === 'scan' ? 'Scan workspace' : 'Index workspace';
+  const folder = vscode.workspace.workspaceFolders?.[0];
+  if (!folder) {
+    void vscode.window.showErrorMessage(
+      `Pali: open a folder before running "Pali: ${label}".`,
+    );
+    return;
+  }
+
+  const resolved = await resolveBinary(context);
+  if (!resolved.path) {
+    void vscode.window.showErrorMessage(
+      'Pali: the pali binary was not found. Run "Pali: Install pali" first.',
+    );
+    return;
+  }
+
+  const invocation = workspaceBootstrapCommand(
+    kind,
+    await settings(context, resolved),
+    folder.uri.fsPath,
+  );
+  output.show(true);
+  output.appendLine(
+    `pali ${kind}: ${invocation.command} ${invocation.args.join(' ')}`,
+  );
+
+  let outcome: BootstrapOutcome;
+  try {
+    outcome = await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: `Pali: ${label.toLowerCase()} ${path.basename(folder.uri.fsPath)}`,
+        cancellable: true,
+      },
+      (_, cancellation) => runBootstrap(invocation, output, cancellation),
+    );
+  } catch (error) {
+    const message = `Pali: could not run "${invocation.command}": ${(error as Error).message}`;
+    output.appendLine(message);
+    void vscode.window.showErrorMessage(message);
+    return;
+  }
+
+  if (outcome.cancelled) {
+    output.appendLine(`pali ${kind}: cancelled`);
+    return;
+  }
+  if (outcome.code !== 0) {
+    const message =
+      `Pali: ${kind} failed (exit ${outcome.code ?? 'signal'}). ` +
+      'See the "Pali Memory" output for details.';
+    output.appendLine(message);
+    void vscode.window.showErrorMessage(message);
+    return;
+  }
+
+  const message = workspaceBootstrapSummary(kind, outcome.stdout);
+  output.appendLine(message);
+  void vscode.window.showInformationMessage(message);
+}
+
 function activate(context: vscode.ExtensionContext): void {
   // Event emitter to signal VS Code to re-request the MCP server definition
   const serverChanged = new vscode.EventEmitter<void>();
@@ -236,6 +361,10 @@ function activate(context: vscode.ExtensionContext): void {
       void refreshServer(context, serverChanged, output)),
     vscode.commands.registerCommand('pali.setToken', setToken),
     vscode.commands.registerCommand('pali.clearToken', clearToken),
+    vscode.commands.registerCommand('pali.scan', () =>
+      bootstrapWorkspace('scan', context, output)),
+    vscode.commands.registerCommand('pali.index', () =>
+      bootstrapWorkspace('index', context, output)),
     vscode.lm?.registerMcpServerDefinitionProvider?.(MCP_PROVIDER_ID, {
       onDidChangeMcpServerDefinitions: serverChanged.event,
       provideMcpServerDefinitions: async (): Promise<vscode.McpServerDefinition[]> => {

@@ -14,7 +14,21 @@ models/**
 openspec/**
 # Test suites and dev-only config are not extension content.
 .config/**
+.freebuff/**
+.vscode-test.mjs
+tmp/**
 hooks/test/**
+# Hook sources for the retired per-event layout and the hooks' own dev
+# scaffolding: the extension only runs copilot-hooks.mjs (which imports
+# pali-client.mjs).
+hooks/backfill-sessions.mjs
+hooks/copilot-hook.js
+hooks/copilot-sessionstart-hook.js
+hooks/copilot-stop-hook.js
+hooks/pali-session-capture.mjs
+hooks/pali-session-digest.mjs
+hooks/package.json
+hooks/package-lock.json
 .githooks/**
 test/**
 scripts/**
