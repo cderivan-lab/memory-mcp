@@ -127,4 +127,3 @@ output/notices without blocking the editor.
   Repositories`
 - **THEN** the invocation passes `--blame` while keeping commit-ID-only
   blame output
-  

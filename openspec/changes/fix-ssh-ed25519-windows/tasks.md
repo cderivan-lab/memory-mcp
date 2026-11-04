@@ -2,7 +2,7 @@
 
 ## Implementation
 
-- [ ] `pali/Cargo.toml`: add `cfg(windows)`-scoped `libssh2-sys` dependency
+- [-] `pali/Cargo.toml`: add `cfg(windows)`-scoped `libssh2-sys` dependency
       with `features = ["openssl-on-win32"]` (feature-unions with git2's
       `ssh`-enabled libssh2)
 - [ ] Verify feature unification on a clean build:

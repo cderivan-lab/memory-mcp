@@ -1,6 +1,7 @@
 # ADR-0053: gix for read paths, libgit2 for merge and push
 
 ## Status
+
 Accepted. Supersedes [ADR-0002](0002-git2-over-shell.md) for read-only
 access only; ADR-0002 still governs the write path and the rejection of
 shelling out to the `git` CLI.
