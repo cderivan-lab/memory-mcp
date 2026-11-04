@@ -199,7 +199,7 @@ pub struct DatasetSummary {
 
 /// A text file included in a scan.
 #[derive(Debug, Serialize)]
-pub(crate) struct ScannedFile {
+pub struct ScannedFile {
     /// Workspace-relative path, `/`-separated.
     path: String,
     /// Coarse language label derived from the extension.
@@ -223,7 +223,7 @@ pub(crate) struct Finding {
 
 /// Full scan inventory written to the report file.
 #[derive(Debug, Serialize)]
-pub(crate) struct Report {
+pub struct Report {
     root: String,
     files: Vec<ScannedFile>,
     skipped: usize,
@@ -450,7 +450,7 @@ pub(crate) fn secret_rule(line: &str) -> Option<&'static str> {
         }
     }
     for prefix in ["xoxb-", "xoxp-", "xoxa-", "xoxr-", "xoxs-"] {
-        if has_token(line, prefix, 10, |c| (c.is_ascii_alphanumeric() || c == '-')) {
+        if has_token(line, prefix, 10, |c| c.is_ascii_alphanumeric() || c == '-') {
             return Some("slack-token");
         }
     }
@@ -579,11 +579,9 @@ fn chunk_workspace(
     report: &Report,
     options: &ScanOptions
 ) -> Result<(Vec<ChunkRecord>, usize), MemoryError> {
-    let _span = ::info_span("workspace.chunk", {
-        files = report.files.len();
-    }).entered();
+    let _span = tracing::info_span!("workspace.chunk", files = report.files.len()).entered();
 
-    let mut chunks = Vec::new();
+    let mut chunks: Vec<ChunkRecord> = Vec::new();
     let mut sensitive_skipped = 0usize;
 
     for file in &report.files {
@@ -669,7 +667,7 @@ pub async fn index(
     options: &ScanOptions,
     embedding: &dyn EmbeddingBackend
 ) -> Result<IndexSummary, MemoryError> {
-    let _span = tracing::info_span("workspace.index").entered();
+    let _span = tracing::info_span!("workspace.index").entered();
 
     let report = scan_workspace(options)?;
     let (chunks, sensitive_skipped) = chunk_workspace(&report, options)?;
@@ -734,7 +732,7 @@ pub fn dataset(
     options: &ScanOptions,
     output: Option<&Path>
 ) -> Result<DatasetSummary, MemoryError> {
-    let _span = tracing::info_span("workspace.dataset").entered();
+    let _span = tracing::info_span!("workspace.dataset").entered();
 
     let report = scan_workspace(options)?;
     let (chunks, sensitive_skipped) = chunk_workspace(&report, options)?;

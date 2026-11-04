@@ -46,8 +46,6 @@ const COMMIT_MESSAGES: usize = 5;
 const GENERATED_SNIFF_CHARS: usize = 4_096;
 /// Default artifacts directory, relative to the workspace root.
 const DEFAULT_ARTIFACTS_DIR: &str = ".pali";
-/// Bytes inspected when deciding whether a file is binary.
-const BINARY_SNIFF_BYTES: usize = 8 * 1024;
 /// Memory name used by [`save_insights`].
 pub const INSIGHTS_MEMORY_NAME: &str = "codebase-insights";
 /// Entries retained per insight list, so one huge repository cannot make the
@@ -591,7 +589,7 @@ fn list_paths(repo: &git2::Repository) -> Result<BTreeSet<String>, MemoryError> 
 
 fn is_artifacts_path(relative: &str, prefix: Option<&str>) -> bool {
     prefix.is_some_and(|prefix| {
-        relative.strip_prefix(prefix).is_some_and(|rest| (rest.is_empty() || rest.starts_with('/')))
+        relative.strip_prefix(prefix).is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
     })
 }
 
@@ -618,7 +616,7 @@ fn parent_is_symlink(repo: &Path, path: &Path) -> bool {
 /// output. Matching is per path component, so a directory named `secrets`
 /// excludes everything below it.
 fn path_excluded(relative: &str) -> bool {
-    relative.split('/').any(|part| (BLOCKED_DIRS.contains(&part) || path_pattern().is_match(part)))
+    relative.split('/').any(|part| BLOCKED_DIRS.contains(&part) || path_pattern().is_match(part))
 }
 
 /// Generated files are not source: they carry no design intent worth
@@ -913,7 +911,7 @@ pub fn default_scope(root: &Path) -> String {
             if c.is_alphanumeric() || matches!(c, '-' | '_' | '.') { c } else { '-' }
         })
         .collect();
-    let trimmed = sanitized.trim_matches(|c| (c == '-' || c == '.'));
+    let trimmed = sanitized.trim_matches(|c| c == '-' || c == '.');
     if trimmed.is_empty() {
         "workspace".to_string()
     } else {
