@@ -235,7 +235,7 @@ pub struct Report {
 
 /// Scan a workspace and write its inventory to `<artifacts>/scan.json`.
 ///
-/// Directories in [`SKIP_DIRS`], the artifacts directory, symlinks, files
+/// Directories in `SKIP_DIRS`, the artifacts directory, symlinks, files
 /// larger than the configured maximum, binary files, and files that are not
 /// valid UTF-8 are skipped. Files that commonly hold credentials are listed
 /// (and scanned for findings) but marked sensitive, so index and dataset never
