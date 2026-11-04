@@ -85,8 +85,8 @@ listed, but `index` and `dataset` never chunk their contents. `--limit N`
 bounds a sample; files are sorted first, so the prefix is deterministic.
 `index` needs the embedding model provisioned with `scripts/fetch-model.sh`.
 
-`pali scan-repos` is the git-aware variant. It scans the workspace's own git
-repository (nested repositories are not followed), lists its tracked and
+`pali scan` is git-aware: when the workspace root is a git repository it scans
+that repository (nested repositories are not followed), lists its tracked and
 untracked-but-not-ignored files, and writes
 `.pali/security-scan.json`, `.pali/scan-manifest.jsonl`, and
 `.pali/insights.json`: repository, path, language, HEAD commit, content hash,
@@ -96,6 +96,10 @@ largest files, TODO/FIXME markers, test-file ratio, project files), never model
 output or file content. A file whose path or contents look sensitive is
 excluded whole rather than redacted, and findings name the rule, path, and line,
 never the matched value.
+
+A plain directory gets the file and secret report from the workspace scanner
+instead; `--save-memories` is refused there because there is no digest to
+commit.
 
 `--save-memories` also stores the insight digest as one `codebase-insights`
 memory in the pali memory repository (default `~/.memory-mcp`), so later agent

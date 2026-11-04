@@ -41,11 +41,9 @@ enum Command {
     Warmup(WarmupArgs),
     /// Show recall precision statistics by distance bucket
     RecallStats(RecallStatsArgs),
-    /// Bootstrap a workspace: scan text files and report potential secrets
+    /// Bootstrap a workspace: scan text files, report potential secrets, and
+    /// write the git-aware manifest and insights when it is a repository
     Scan(ScanArgs),
-    /// Bootstrap a workspace: scan its git repositories, then write the
-    /// security report and scan manifest
-    ScanRepos(ScanReposArgs),
     /// Bootstrap a workspace: embed scanned files into a local vector index
     Index(IndexArgs),
     /// Bootstrap a workspace: write scanned chunks as a JSONL dataset
@@ -109,12 +107,6 @@ struct RecallStatsArgs {
 
 #[derive(Args)]
 struct ScanArgs {
-    #[command(flatten)]
-    workspace: WorkspaceArgs,
-}
-
-#[derive(Args)]
-struct ScanReposArgs {
     #[command(flatten)]
     workspace: WorkspaceArgs,
 
@@ -250,10 +242,7 @@ async fn main() -> anyhow::Result<()> {
             run_recall_stats(args)?;
         }
         Some(Command::Scan(args)) => {
-            run_scan(args)?;
-        }
-        Some(Command::ScanRepos(args)) => {
-            run_scan_repos(args).await?;
+            run_scan(args).await?;
         }
         Some(Command::Index(args)) => {
             run_index(args).await?;
@@ -628,15 +617,14 @@ fn workspace_options(args: &WorkspaceArgs) -> anyhow::Result<pali::workspace::Sc
     Ok(options)
 }
 
-/// Write a scan inventory to `<artifacts>/scan.json` and print its summary.
-fn run_scan(args: ScanArgs) -> anyhow::Result<()> {
-    let summary = pali::workspace::scan(&workspace_options(&args.workspace)?)?;
-    println!("{}", serde_json::to_string_pretty(&summary)?);
-    Ok(())
-}
-
-/// Scan the workspace's git repository and print the artifact summary.
-async fn run_scan_repos(args: ScanReposArgs) -> anyhow::Result<()> {
+/// Scan the workspace and print its summary.
+///
+/// The workspace's own git repository drives the scan when there is one: that
+/// pass writes the security report, the manifest, and the codebase insights.
+/// A plain directory still gets the file and secret report from the workspace
+/// scanner. `--save-memories` commits the insight digest, so it needs a
+/// repository.
+async fn run_scan(args: ScanArgs) -> anyhow::Result<()> {
     let mut options = pali::scanner::RepositoryScanOptions::new(args.workspace.workspace.clone())?
         .with_max_file_bytes(args.max_file_bytes)
         .with_blame(args.blame);
@@ -646,7 +634,23 @@ async fn run_scan_repos(args: ScanReposArgs) -> anyhow::Result<()> {
     if let Some(artifacts) = &args.workspace.artifacts {
         options = options.with_artifacts(artifacts);
     }
-    let summary = pali::scanner::scan_repositories(&options)?;
+
+    let summary = match pali::scanner::scan_repositories(&options) {
+        Ok(summary) => summary,
+        Err(pali::error::MemoryError::InvalidInput { .. }) if !args.save_memories => {
+            // Not a git repository: fall back to the plain workspace scan.
+            let plain = pali::workspace::scan(&workspace_options(&args.workspace)?)?;
+            println!("{}", serde_json::to_string_pretty(&plain)?);
+            return Ok(());
+        }
+        Err(pali::error::MemoryError::InvalidInput { .. }) => {
+            anyhow::bail!(
+                "--save-memories needs a git repository; {} is not one",
+                options.root().display()
+            );
+        }
+        Err(error) => return Err(error.into()),
+    };
 
     if args.save_memories {
         let repo_path = expand_path(&args.repo_path)?;
@@ -992,5 +996,72 @@ mod tests {
             msg.contains("not supported"),
             "error should mention unsupported: {msg}"
         );
+    }
+}
+
+#[cfg(test)]
+mod cli_tests {
+    use super::*;
+    use clap::Parser;
+
+    fn scan_args(extra: &[&str]) -> ScanArgs {
+        let mut argv = vec!["pali", "scan"];
+        argv.extend_from_slice(extra);
+        match Cli::try_parse_from(argv).expect("scan must parse").command {
+            Some(Command::Scan(args)) => args,
+            _ => panic!("expected the scan subcommand"),
+        }
+    }
+
+    #[test]
+    fn scan_defaults_keep_the_plain_workspace_scan() {
+        let args = scan_args(&[]);
+        assert!(!args.blame);
+        assert!(!args.save_memories);
+        assert_eq!(args.max_file_bytes, 2 * 1024 * 1024);
+        assert_eq!(args.repo_path, "~/.memory-mcp");
+        assert!(args.scope.is_none());
+        assert_eq!(args.workspace.workspace, PathBuf::from("."));
+    }
+
+    #[test]
+    fn scan_carries_the_repository_flags_it_folded_in() {
+        let args = scan_args(&[
+            "--workspace",
+            "/w",
+            "--blame",
+            "--max-file-bytes",
+            "1048576",
+            "--save-memories",
+            "--repo-path",
+            "/mem",
+            "--scope",
+            "team",
+            "--limit",
+            "5",
+        ]);
+        assert!(args.blame);
+        assert!(args.save_memories);
+        assert_eq!(args.max_file_bytes, 1_048_576);
+        assert_eq!(args.repo_path, "/mem");
+        assert_eq!(args.scope.as_deref(), Some("team"));
+        assert_eq!(args.workspace.limit, Some(5));
+        assert_eq!(args.workspace.workspace, PathBuf::from("/w"));
+    }
+
+    #[test]
+    fn scan_rejects_a_zero_file_size_bound() {
+        let error = match Cli::try_parse_from(["pali", "scan", "--max-file-bytes", "0"]) {
+            Ok(_) => panic!("a zero bound must be rejected"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("max-file-bytes"), "{error}");
+    }
+
+    #[test]
+    fn the_scan_repos_subcommand_is_gone() {
+        // Regression: scan-repos was folded into scan. Leaving the variant
+        // alive would let a caller keep the old two-command split.
+        assert!(Cli::try_parse_from(["pali", "scan-repos"]).is_err());
     }
 }
