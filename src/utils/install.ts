@@ -20,6 +20,10 @@ export async function activate(disposables: vscode.Disposable[],
       'pali.install', async () => common.installLatest(ui)));
   disposables.push(vscode.commands.registerCommand(
       'pali.update', async () => common.checkUpdates(true, ui)));
+  // The installer cannot read VS Code settings itself. Passing the configured
+  // model path lets prepare() and installLatest() skip the download offer for
+  // a model the user already provisioned.
+  ui.modelPath = String((await config.get<string>('modelPath')) || '').trim();
   return await common.prepare(ui, await config.get<boolean>('checkUpdates'));
 }
 
@@ -42,6 +46,8 @@ class UI {
 
   /** Set by activate(): re-resolves and restarts the server after an install. */
   installed?: () => void;
+  /** Configured `pali.modelPath`; a usable one suppresses the model offer. */
+  modelPath?: string;
 
   get storagePath(): string { return this.globalStoragePath; }
   get extensionPath(): string { return this.extensionRoot; }
@@ -118,11 +124,6 @@ class UI {
     await this._pathUpdated;
     this._pathUpdated = null;
     vscode.commands.executeCommand('pali.restart');
-  }
-
-  async showHelp(message: string, url: string) {
-    if (await vscode.window.showInformationMessage(message, 'Open website'))
-      vscode.env.openExternal(vscode.Uri.parse(url));
   }
 
   async promptUpdate(oldVersion: string, newVersion: string) {

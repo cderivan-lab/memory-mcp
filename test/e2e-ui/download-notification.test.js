@@ -38,6 +38,12 @@ const OFFER = new RegExp(`The ${MODEL_DIR_NAME} embedding model`);
 /** A finished flow: either the model install or its reported failure. */
 const TERMINAL = /Could not download|pali installed at/;
 
+/**
+ * The unusable `pali.modelPath` report seeded by scripts/e2e-ui-fixtures.mjs:
+ * the message names the setting and the files activation found missing.
+ */
+const MODEL_PATH_ERROR = /pali\.modelPath[\s\S]{0,500}?tokenizer\.json/;
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
@@ -100,6 +106,27 @@ async function findModelDownloadButton(driver) {
 }
 
 describe("model install flow from the notification", () => {
+  it("reports an unusable pali.modelPath instead of starting on it", async function () {
+    // The fixture seeds a directory missing tokenizer.json and
+    // model.safetensors. Activation must surface that as an error naming the
+    // setting and the missing files, not hand it to the MCP server.
+    this.timeout(60_000);
+    const driver = VSBrowser.instance.driver;
+
+    const deadline = Date.now() + 60_000;
+    let text = "";
+    while (Date.now() < deadline) {
+      text = await bodyText(driver);
+      if (MODEL_PATH_ERROR.test(text)) return;
+      await sleep(POLL_INTERVAL);
+    }
+
+    assert.fail(
+      "activation must report the unusable pali.modelPath; " +
+        `workbench text: ${text.slice(0, 800)}`,
+    );
+  });
+
   it("clicks Download now on the model offer and reaches a terminal state", async function () {
     this.timeout(OFFER_TIMEOUT + TERMINAL_TIMEOUT + 60_000);
     const driver = VSBrowser.instance.driver;

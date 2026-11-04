@@ -80,7 +80,6 @@ export async function isExecutable(file: string): Promise<boolean> {
     const st = await fs.stat(file);
     if (!st.isFile()) return false;
     if (process.platform === "win32") return true;
-    // eslint-disable-next-line no-bitwise
     return (st.mode & 0o111) !== 0;
   } catch {
     return false;
@@ -272,6 +271,33 @@ export async function resolveModelDir(storagePath: string): Promise<string | nul
     return null;
   }
   return dir;
+}
+
+/**
+ * Explain why a directory cannot serve as `PALI_MODEL_DIR`, or return
+ * undefined when every required model file is present. An empty file is not
+ * usable either: the server loads the weights at startup, so a truncated
+ * install would fail there instead.
+ */
+export async function modelPathProblem(dir: string): Promise<string | undefined> {
+  try {
+    const entry = await fs.stat(dir);
+    if (!entry.isDirectory()) return `"${dir}" is not a directory`;
+  } catch {
+    return `"${dir}" does not exist`;
+  }
+
+  const missing: string[] = [];
+  for (const name of MODEL_FILES) {
+    try {
+      const st = await fs.stat(path.join(dir, name));
+      if (!st.isFile() || st.size === 0) missing.push(name);
+    } catch {
+      missing.push(name);
+    }
+  }
+  if (missing.length === 0) return undefined;
+  return `"${dir}" is missing ${missing.join(", ")}`;
 }
 
 /** One Git LFS pointer, as committed instead of the file body. */
@@ -673,6 +699,12 @@ export interface UI {
   ): Promise<T>;
   localize(message: string, ...args: Array<string | number | boolean>): string;
   /**
+   * Configured `pali.modelPath`, when the user set one. A usable directory
+   * suppresses the model download offer: the server starts on it, so asking
+   * to download a model would be wrong.
+   */
+  modelPath?: string;
+  /**
    * Called after an install finishes, so the host can re-resolve the server
    * inputs and restart it: an install is the moment a server that had nothing
    * to start with becomes startable, without waiting for the next activation.
@@ -680,7 +712,6 @@ export interface UI {
   installed?(): void;
   shouldReuse(release: string): Promise<boolean | undefined>;
   promptReload(message: string): Promise<void>;
-  showHelp(message: string, url: string): Promise<void>;
   promptUpdate(oldVersion: string, newVersion: string): Promise<void>;
   promptInstall(version: string): Promise<void>;
 }
@@ -701,7 +732,20 @@ export interface PrepareResult {
  * model is not installed yet. Choosing "Later" (or dismissing the prompt)
  * leaves the model uninstalled for this session.
  */
+/**
+ * The configured `pali.modelPath` when it holds every model file, else null.
+ * An unusable path must not suppress the download offer: the server cannot
+ * start on it, and the extension reports that problem separately.
+ */
+async function usableConfiguredModel(ui: UI): Promise<string | null> {
+  const configured = ui.modelPath?.trim();
+  if (!configured) return null;
+  return (await modelPathProblem(configured)) === undefined ? configured : null;
+}
+
 async function provisionModel(ui: UI, offer: boolean): Promise<string | null> {
+  const configured = await usableConfiguredModel(ui);
+  if (configured) return configured;
   const installed = await resolveModelDir(ui.storagePath);
   if (installed || !offer) return installed;
 
@@ -769,7 +813,7 @@ export async function prepare(ui: UI, autoCheck: boolean): Promise<PrepareResult
   // and its update prompts do not apply. The model is still needed, and so is
   // it when the binary was found on PATH or in the cache.
   const modelDir = modelOffered
-    ? await resolveModelDir(ui.storagePath)
+    ? ((await usableConfiguredModel(ui)) ?? (await resolveModelDir(ui.storagePath)))
     : await provisionModel(ui, true);
 
   if (resolved.source === "bundled") {

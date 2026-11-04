@@ -19,29 +19,37 @@
   "publisher": "cderivan",
   "main": "./out/extension.js",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "esbuild-base": "esbuild ./src/extension.ts ./src/uninstall.ts --bundle --outdir=out --external:vscode --format=cjs --platform=node",
+    "build:binary": "node scripts/build-binary.mjs",
+    "build": "npm run build:binary && npm run compile",
     "icon": "node scripts/make-icon.js",
     "package": "vsce package --baseContentUrl https://github.com/cderivan/memory-mcp/src/branch/main --baseImagesUrl https://github.com/cderivan/memory-mcp/raw/branch/main",
-    "prepare": "npm run build && npm run icon",
+    "compile": "npm run -S esbuild-base -- --sourcemap",
+    "compile:tests": "esbuild ./src/extension.ts ./src/uninstall.ts ./src/utils/lib.ts ./src/utils/install_pali.ts ./src/utils/logger.ts --bundle --outdir=out --external:vscode --format=cjs --platform=node --sourcemap",
+    "pretest": "npm run -S compile:tests",
+    "prepare": "npm run compile && npm run icon",
     "postinstall": "node scripts/patch-url-parse.js",
+    "vscode:uninstall": "node ./out/uninstall.js",
     "test": "node --test test/extension.test.js",
-    "install": "code --install-extension pali-memory-*.vsix",
-    "uninstall": "code --uninstall-extension cderivan.pali-memory",
-    "reinstall": "npm run uninstall & npm run install",
+    "pkginstall": "code --install-extension pali-memory-0.3.0.vsix",
+    "pkguninstall": "code --uninstall-extension cderivan.pali-memory",
+    "reinstall": "npm run pkguninstall & npm run pkginstall",
     "test:e2e": "vscode-test",
-    "test:e2e:ui": "node scripts/e2e-ui-fixtures.mjs && extest setup-and-run test/e2e-ui/download-notification.test.js --code_settings .e2e-ui/settings.json --storage \"${PALI_E2E_STORAGE:-test-resources}\"",
+    "test:e2e:ui": "node scripts/e2e-ui-fixtures.mjs && node scripts/run-e2e-ui.mjs",
     "test:coverage": "node  --experimental-test-coverage --test test/extension.test.js",
     "test:vsix": "node --test test/vsix.test.js",
     "clean": "rm -rf out node_modules target pali-memory-*.vsix tsconfig.tsbuildinfo",
-    "vscode:prepublish": "npm run build && npm run icon",
+    "vscode:prepublish": "npm run compile && npm run icon",
     "watch": "tsc -p tsconfig.json --watch"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
-    "@types/vscode": "^1.101.0",
+    "@types/vscode": "^1.145.0",
     "@vscode/test-cli": "^0.0.15",
     "@vscode/test-electron": "^3.1.0",
     "@vscode/vsce": "4.1.0",
+    "esbuild": "^0.28.2",
+    "mocha": "^12.0.3",
     "typescript": "^7.0.2",
     "vscode-extension-tester": "8.28.1"
   },
@@ -72,6 +80,18 @@
       {
         "command": "pali.restart",
         "title": "Pali: Restart MCP Server"
+      },
+      {
+        "command": "pali.scan",
+        "title": "Pali: Scan Workspace"
+      },
+      {
+        "command": "pali.scanRepositories",
+        "title": "Pali: Scan Repositories"
+      },
+      {
+        "command": "pali.index",
+        "title": "Pali: Index Workspace"
       }
     ],
     "configuration": {
@@ -96,6 +116,11 @@
           "description": "Git remote for the memory repository: an HTTPS or SSH URL, or an absolute path to a local repository. Empty runs local-only, with no push or pull.",
           "type": "string"
         },
+        "pali.remoteSync": {
+          "default": false,
+          "description": "Pull every repository from the remote before startup index freshness is decided, and refuse to start when pali.remoteUrl is not set. Requires a non-empty pali.remoteUrl.",
+          "type": "boolean"
+        },
         "pali.repoPath": {
           "default": "",
           "description": "Git-backed memory repository. Empty uses the pali default (~/.memory-mcp).",
@@ -105,6 +130,21 @@
           "default": "",
           "description": "Memory scope for hooks. Empty uses the workspace folder's git repository name.",
           "type": "string"
+        },
+        "pali.scanBlame": {
+          "default": false,
+          "description": "Record per-line commit IDs from git blame in the scan manifest. Only commit IDs and line numbers are written, never author names, emails, or source lines.",
+          "type": "boolean"
+        },
+        "pali.scanMaxFileBytes": {
+          "default": 2097152,
+          "description": "Maximum size in bytes of a file included by Pali: Scan Repositories.",
+          "type": "number"
+        },
+        "pali.scanSaveMemories": {
+          "default": true,
+          "description": "Save the codebase insight digest as the codebase-insights memory in the memory repository. Uses pali.repoPath and pali.scope.",
+          "type": "boolean"
         },
         "pali.logLevel": {
           "default": "info",
@@ -117,6 +157,11 @@
             "error",
             "off"
           ]
+        },
+        "pali.modelPath": {
+          "default": "",
+          "description": "Directory containing the embedding model files (config.json, tokenizer.json, model.safetensors). Empty uses the model auto-installed by the extension, or the platform default when none is installed. A directory missing any of the files is reported and ignored.",
+          "type": "string"
         }
       },
       "title": "Pali"
@@ -137,9 +182,10 @@
     "theme": "dark"
   },
   "engines": {
-    "vscode": "^1.101.0"
+    "vscode": "^1.145.0"
   },
   "allowScripts": {
-    "@vscode/vsce-sign@2.1.0": true
+    "@vscode/vsce-sign@2.1.0": true,
+    "esbuild@0.28.2": true
   }
 }

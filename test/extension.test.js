@@ -9,6 +9,8 @@ const {
   mcpServerDefinition,
   getReleaseTarget,
   releaseUrl,
+  workspaceBootstrapCommand,
+  workspaceBootstrapSummary,
 } = require("../out/utils/lib");
 const {
   binaryName,
@@ -18,6 +20,7 @@ const {
   installModel,
   MODEL_FILES,
   modelDir,
+  modelPathProblem,
   parseLfsPointer,
   prepare,
   releaseAssetName,
@@ -34,6 +37,7 @@ const settings = {
   binPath: "/opt/pali bin/pali",
   repoPath: "/tmp/my repo",
   remoteUrl: "https://example.com/mem.git",
+  remoteSync: true,
   branch: "trunk",
   scope: "org/team",
 };
@@ -83,6 +87,31 @@ test("hook commands carry the configured log level", () => {
   assert.doesNotMatch(bare.powershell, /PALI_HOOK_LOG_LEVEL/);
 });
 
+test("hook commands exit quietly when the extension directory is gone", () => {
+  // Regression: a hook file left behind by uninstall or an update pointed at a
+  // directory VS Code had deleted, so node failed to load the entry point and
+  // every event crashed with MODULE_NOT_FOUND.
+  const entry = buildHookConfig("/ext", settings).hooks.sessionStart[0];
+
+  assert.match(
+    entry.bash,
+    /^\[ -f '\/ext\/hooks\/copilot-hooks\.mjs' \] \|\| exit 0; PALI_BIN=/,
+    "bash must skip the hook when the script is missing",
+  );
+  assert.match(
+    entry.powershell,
+    /^if \(-not \(Test-Path -LiteralPath '\/ext\/hooks\/copilot-hooks\.mjs'\)\) \{ exit 0 \}; \$env:PALI_BIN=/,
+    "PowerShell must skip the hook when the script is missing",
+  );
+
+  // A present script still runs the same event mode.
+  assert.match(entry.bash, /copilot-hooks\.mjs' session-start$/);
+  assert.match(entry.powershell, /copilot-hooks\.mjs' session-start$/);
+
+  // The guard must not hide the profile from the hook environment.
+  assert.match(entry.bash, /PALI_SCOPE='org\/team'/);
+});
+
 test("single quotes are escaped per shell", () => {
   const entry = buildHookConfig("/ext", { ...settings, binPath: "pali's bin" }).hooks.agentStop[0];
 
@@ -105,12 +134,25 @@ test("MCP definition points at the configured stdio server", () => {
     command: "/opt/pali bin/pali",
     args: ["serve"],
     env: {
+      // The server always runs with ANSI colour off; MCP diagnostics are read
+      // as plain text in the output channel.
+      NO_COLOR: "1",
       PALI_BRANCH: "trunk",
       PALI_REPO_PATH: "/tmp/my repo",
       PALI_REMOTE_URL: "https://example.com/mem.git",
+      PALI_REQUIRE_REMOTE_SYNC: "true",
       PALI_GIT_TOKEN: "ghp_example",
     },
   });
+});
+
+test("remoteSync exports PALI_REQUIRE_REMOTE_SYNC only when enabled", () => {
+  const on = mcpServerDefinition(settings, token);
+  // The clap argument is a value-taking bool: `true`/`false`, not `1`.
+  assert.equal(on.env.PALI_REQUIRE_REMOTE_SYNC, "true");
+
+  const off = mcpServerDefinition({ ...settings, remoteSync: false }, token);
+  assert.equal(off.env.PALI_REQUIRE_REMOTE_SYNC, undefined);
 });
 
 test("MCP definition exports the log level as a scoped RUST_LOG filter", () => {
@@ -135,6 +177,134 @@ test("token is passed only for HTTPS remotes", () => {
   const local = mcpServerDefinition({ ...settings, remoteUrl: "/srv/memories.git" }, token);
   assert.equal(local.env.PALI_REMOTE_URL, "/srv/memories.git");
   assert.equal(local.env.PALI_GIT_TOKEN, undefined);
+});
+
+// --- Workspace bootstrap ---------------------------------------------------
+//
+// `Pali: Scan Workspace` and `Pali: Index Workspace` shell out to the CLI's
+// bootstrap subcommands. The invocation is pure so the flags and the model
+// handoff can be pinned without spawning the binary.
+
+test("scan runs against the workspace folder and needs no model", () => {
+  const invocation = workspaceBootstrapCommand("scan", settings, "/work/repo");
+
+  assert.deepEqual(invocation.args, ["scan", "--workspace", "/work/repo"]);
+  assert.equal(invocation.command, "/opt/pali bin/pali");
+  assert.equal(invocation.env.PALI_MODEL_DIR, undefined);
+  // Scan artifacts default to <workspace>/.pali, so no --artifacts is needed
+  // and nothing is written into the memory repository.
+  assert.doesNotMatch(invocation.args.join(" "), /--artifacts/);
+});
+
+test("index hands the embedding model to the CLI", () => {
+  const installed = workspaceBootstrapCommand(
+    "index",
+    { ...settings, modelDir: "/storage/models/bge-small-en-v1.5" },
+    "/work/repo",
+  );
+  assert.deepEqual(installed.args, ["index", "--workspace", "/work/repo"]);
+  assert.equal(installed.env.PALI_MODEL_DIR, "/storage/models/bge-small-en-v1.5");
+
+  // An explicit pali.modelPath wins, matching the server definition.
+  const configured = workspaceBootstrapCommand(
+    "index",
+    { ...settings, modelPath: "/custom/models", modelDir: "/storage/models/bge-small-en-v1.5" },
+    "/work/repo",
+  );
+  assert.equal(configured.env.PALI_MODEL_DIR, "/custom/models");
+});
+
+test("scan-repos carries blame, size, and memory settings", () => {
+  const defaults = workspaceBootstrapCommand(
+    "scan-repos",
+    { ...settings, scanSaveMemories: true, repoPath: "", scope: "" },
+    "/work/repo",
+  );
+  assert.deepEqual(defaults.args, [
+    "scan-repos",
+    "--workspace",
+    "/work/repo",
+    "--save-memories",
+  ]);
+  assert.equal(defaults.env.PALI_MODEL_DIR, undefined, "scanning never loads the model");
+
+  const configured = workspaceBootstrapCommand(
+    "scan-repos",
+    {
+      ...settings,
+      scanSaveMemories: true,
+      scanBlame: true,
+      scanMaxFileBytes: 1048576,
+      repoPath: "/memories",
+      scope: "my-repo",
+    },
+    "/work/repo",
+  );
+  assert.deepEqual(configured.args, [
+    "scan-repos",
+    "--workspace",
+    "/work/repo",
+    "--blame",
+    "--max-file-bytes",
+    "1048576",
+    "--save-memories",
+    "--repo-path",
+    "/memories",
+    "--scope",
+    "my-repo",
+  ]);
+
+  // With saving off, the memory-repository flags stay out entirely.
+  const artifactsOnly = workspaceBootstrapCommand(
+    "scan-repos",
+    { ...settings, scanSaveMemories: false, repoPath: "/memories", scope: "my-repo" },
+    "/work/repo",
+  );
+  assert.deepEqual(artifactsOnly.args, ["scan-repos", "--workspace", "/work/repo"]);
+});
+
+test("every bootstrap subcommand carries the configured log level", () => {
+  for (const kind of ["scan", "index", "scan-repos"]) {
+    const invocation = workspaceBootstrapCommand(
+      kind,
+      { ...settings, logLevel: "debug" },
+      "/work/repo",
+    );
+    assert.equal(invocation.env.RUST_LOG, "pali=debug,info", kind);
+  }
+});
+
+test("bootstrap summaries report the artifacts the run produced", () => {
+  assert.equal(
+    workspaceBootstrapSummary(
+      "scan",
+      JSON.stringify({ files: 12, sensitive: 2, findings: 3, report: "/w/.pali/scan.json" }),
+    ),
+    "Pali: scanned 12 files (2 sensitive, 3 potential secrets). Report: /w/.pali/scan.json",
+  );
+  assert.equal(
+    workspaceBootstrapSummary(
+      "index",
+      JSON.stringify({ files: 12, chunks: 40, index: "/w/.pali/index" }),
+    ),
+    "Pali: indexed 40 chunks from 12 files. Index: /w/.pali/index",
+  );
+
+  assert.equal(
+    workspaceBootstrapSummary(
+      "scan-repos",
+      JSON.stringify({
+        repositories: 1,
+        accepted_files: 12,
+        findings: 3,
+        insights: "/w/.pali/insights.json",
+      }),
+    ),
+    "Pali: scanned 12 files (3 findings). Insights: /w/.pali/insights.json",
+  );
+
+  // A binary that prints something other than JSON must not hide its output.
+  assert.equal(workspaceBootstrapSummary("scan", "plain summary\n"), "plain summary");
 });
 
 test("getReleaseTarget maps supported platforms", () => {
@@ -302,7 +472,6 @@ test("a missing binary is offered for download even when update checks are off",
     localize: (message) => message,
     shouldReuse: async () => undefined,
     promptReload: async () => {},
-    showHelp: async () => {},
     promptUpdate: async () => {},
     promptInstall: async () => {},
   };
@@ -319,6 +488,58 @@ test("a missing binary is offered for download even when update checks are off",
   }
 });
 
+test("a usable pali.modelPath suppresses the model download offer", async () => {
+  // Regression: activation only looked in extension storage, so a user who
+  // provisioned the model through `pali.modelPath` was asked to download it
+  // again on every activation.
+  const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const storage = join(tmpdir(), `pali-test-configured-storage-${suffix}`);
+  const configured = join(tmpdir(), `pali-test-configured-model-${suffix}`);
+  await mkdir(configured, { recursive: true });
+  for (const name of MODEL_FILES) {
+    await writeFile(join(configured, name), "{}\n", "utf8");
+  }
+
+  const prompts = [];
+  const ui = {
+    paliPath: process.execPath,
+    storagePath: storage,
+    extensionPath: join(tmpdir(), `pali-test-ext-${suffix}`),
+    modelPath: configured,
+    error: (message) => assert.fail(`unexpected error: ${message}`),
+    info: () => {},
+    command: () => {},
+    choose: async (prompt) => {
+      prompts.push(prompt);
+      return "Later";
+    },
+    slow: (_, promise) => promise,
+    progress: (_, __, body) => body(() => {}),
+    localize: (message) => message,
+    shouldReuse: async () => undefined,
+    promptReload: async () => {},
+    promptUpdate: async () => {},
+    promptInstall: async () => {},
+  };
+
+  try {
+    const result = await prepare(ui, false);
+    assert.equal(result.source, "configured");
+    assert.equal(result.modelDir, configured, "the configured model is used");
+    assert.equal(prompts.length, 0, "no download offer for a usable configured model");
+
+    // An unusable path must not suppress the offer: the server cannot start
+    // on it, and the extension reports that problem separately.
+    ui.modelPath = join(configured, "missing");
+    const fallback = await prepare(ui, false);
+    assert.equal(fallback.modelDir, null);
+    assert.equal(prompts.length, 1, "the offer returns when the configured path is unusable");
+  } finally {
+    await rm(storage, { recursive: true, force: true });
+    await rm(configured, { recursive: true, force: true });
+  }
+});
+
 test("the model is only considered installed when all three files exist", async () => {
   const storage = join(tmpdir(), `pali-test-model-${Date.now()}`);
   const dir = modelDir(storage);
@@ -332,6 +553,46 @@ test("the model is only considered installed when all three files exist", async 
     assert.equal(await resolveModelDir(storage), dir);
   } finally {
     await rm(storage, { recursive: true, force: true });
+  }
+});
+
+test("an unusable pali.modelPath names what is missing", async () => {
+  const root = join(tmpdir(), `pali-test-model-path-${Date.now()}`);
+  const dir = join(root, "bge-small-en-v1.5");
+  try {
+    assert.match(
+      await modelPathProblem(dir),
+      /does not exist/,
+      "a missing directory is reported",
+    );
+
+    const file = join(root, "not-a-dir");
+    await mkdir(root, { recursive: true });
+    await writeFile(file, "", "utf8");
+    assert.match(await modelPathProblem(file), /not a directory/);
+
+    await mkdir(dir, { recursive: true });
+    const empty = await modelPathProblem(dir);
+    for (const name of MODEL_FILES) {
+      assert.ok(empty.includes(name), `${name} must be reported missing`);
+    }
+
+    await writeFile(join(dir, MODEL_FILES[0]), "{}\n", "utf8");
+    await writeFile(join(dir, MODEL_FILES[1]), "{}\n", "utf8");
+    const partial = await modelPathProblem(dir);
+    assert.ok(!partial.includes(MODEL_FILES[0]), partial);
+    assert.ok(partial.includes(MODEL_FILES[2]), partial);
+
+    await writeFile(join(dir, MODEL_FILES[2]), "weights", "utf8");
+    assert.equal(await modelPathProblem(dir), undefined, "all three files are usable");
+
+    await writeFile(join(dir, MODEL_FILES[2]), "", "utf8");
+    assert.ok(
+      (await modelPathProblem(dir)).includes(MODEL_FILES[2]),
+      "an empty file is not usable",
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
   }
 });
 
@@ -352,15 +613,55 @@ test("an installed model is exported to the server as PALI_MODEL_DIR", () => {
   assert.equal(definition.env.PALI_MODEL_DIR, "/storage/models/bge-small-en-v1.5");
 });
 
+test("pali.modelPath is exported as PALI_MODEL_DIR and wins over the installed model", () => {
+  const configured = mcpServerDefinition(
+    { ...settings, modelPath: "/custom/models/bge-small-en-v1.5" },
+    token,
+  );
+  assert.equal(configured.env.PALI_MODEL_DIR, "/custom/models/bge-small-en-v1.5");
+
+  const both = mcpServerDefinition(
+    { ...settings, modelPath: "/custom/models", modelDir: "/storage/models/bge-small-en-v1.5" },
+    token,
+  );
+  assert.equal(both.env.PALI_MODEL_DIR, "/custom/models");
+});
+
+test("hook commands carry the model directory for the hook-spawned server", () => {
+  const entry = buildHookConfig(
+    "/ext",
+    { ...settings, modelPath: "/custom/models", modelDir: "/storage/models/bge-small-en-v1.5" },
+  ).hooks.sessionStart[0];
+  assert.match(entry.bash, /PALI_MODEL_DIR='\/custom\/models'/);
+  assert.match(entry.powershell, /\$env:PALI_MODEL_DIR='\/custom\/models';/);
+
+  // No modelPath: the installed model dir is used instead.
+  const installed = buildHookConfig(
+    "/ext",
+    { ...settings, modelDir: "/storage/models/bge-small-en-v1.5" },
+  ).hooks.sessionStart[0];
+  assert.match(installed.bash, /PALI_MODEL_DIR='\/storage\/models\/bge-small-en-v1\.5'/);
+
+  // Neither set: no variable, so the server falls back to its own resolution.
+  const bare = buildHookConfig("/ext", settings).hooks.sessionStart[0];
+  assert.doesNotMatch(bare.bash, /PALI_MODEL_DIR/);
+  assert.doesNotMatch(bare.powershell, /PALI_MODEL_DIR/);
+});
+
 test("no token means no credential variable, even for HTTPS", () => {
   const https = mcpServerDefinition({ ...settings, remoteUrl: "https://example.com/mem.git" });
   assert.equal(https.env.PALI_GIT_TOKEN, undefined);
 });
 
 test("MCP definition omits empty optional settings", () => {
-  const definition = mcpServerDefinition({ ...settings, repoPath: "", remoteUrl: "" });
+  const definition = mcpServerDefinition({
+    ...settings,
+    repoPath: "",
+    remoteUrl: "",
+    remoteSync: false,
+  });
 
-  assert.deepEqual(definition.env, { PALI_BRANCH: "trunk" });
+  assert.deepEqual(definition.env, { NO_COLOR: "1", PALI_BRANCH: "trunk" });
 });
 
 // --- Logging ---------------------------------------------------------------
@@ -525,7 +826,6 @@ function makeInstallUi(storage, { token = "test-token", modelAnswer = "Later" } 
     localize: (message) => message,
     shouldReuse: async () => undefined,
     promptReload: async (message) => calls.reloads.push(message),
-    showHelp: async () => {},
     promptUpdate: async () => {},
     promptInstall: async () => {},
     calls,
@@ -908,6 +1208,13 @@ test("the MCP provider publishes nothing when no binary resolves", async () => {
   const extensionRoot = join(tmpdir(), `pali-test-ext-provider-${Date.now()}`);
   await mkdir(storage, { recursive: true });
 
+  // Activation writes the user-level hook config. Point it at the throwaway
+  // extension root: without this, the test overwrites the real
+  // ~/.copilot/hooks/pali.json with a path that is deleted afterwards, and
+  // every later Copilot hook fails with MODULE_NOT_FOUND.
+  const previousHooksDir = process.env.PALI_HOOKS_DIR;
+  process.env.PALI_HOOKS_DIR = join(extensionRoot, "hooks");
+
   const disposable = () => ({ dispose() {} });
   let provider;
   const fakeVscode = {
@@ -965,6 +1272,53 @@ test("the MCP provider publishes nothing when no binary resolves", async () => {
     assert.deepEqual(await provider.provideMcpServerDefinitions(), []);
   } finally {
     Module._load = originalLoad;
+    if (previousHooksDir === undefined) delete process.env.PALI_HOOKS_DIR;
+    else process.env.PALI_HOOKS_DIR = previousHooksDir;
+    await rm(extensionRoot, { recursive: true, force: true });
     await rm(storage, { recursive: true, force: true });
+  }
+});
+
+// The hook file outlives the extension directory it points into, so uninstall
+// has to remove it; otherwise every Copilot hook event fails with
+// MODULE_NOT_FOUND until the user deletes it by hand.
+test("uninstall removes the hook config this extension wrote", async () => {
+  const { removeHookConfig } = require("../out/uninstall");
+  const dir = join(tmpdir(), `pali-test-uninstall-${Date.now()}`);
+  const target = join(dir, "pali.json");
+  const exists = () => stat(target).then(() => true, () => false);
+  await mkdir(dir, { recursive: true });
+  try {
+    assert.equal(removeHookConfig(dir), false, "a missing file is not an error");
+
+    // Another tool's file at the same path must survive the uninstall.
+    await writeFile(
+      target,
+      JSON.stringify({ version: 1, hooks: { agentStop: [{ bash: "node /x/other.mjs stop" }] } }),
+      "utf8",
+    );
+    assert.equal(removeHookConfig(dir), false, "a foreign hook file is left alone");
+    assert.equal(await exists(), true);
+
+    await writeFile(
+      target,
+      JSON.stringify({
+        version: 1,
+        hooks: {
+          agentStop: [
+            {
+              type: "command",
+              bash: "PALI_BIN='pali' node '/ext/hooks/copilot-hooks.mjs' stop",
+              powershell: "node '/ext/hooks/copilot-hooks.mjs' stop",
+            },
+          ],
+        },
+      }),
+      "utf8",
+    );
+    assert.equal(removeHookConfig(dir), true);
+    assert.equal(await exists(), false, "the Pali hook config is removed");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
   }
 });

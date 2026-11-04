@@ -18,9 +18,21 @@ const binary = join(out, process.platform === "win32" ? "pali.exe" : "pali");
 writeFileSync(binary, "#!/bin/sh\nexit 0\n", "utf8");
 chmodSync(binary, 0o755);
 
+// A model directory that is unusable on purpose: it is missing two of the
+// three files activation requires. `pali.modelPath` is seeded with it below so
+// the UI suite can assert the error notification without touching any
+// developer settings file.
+const modelPath = join(out, "model-partial");
+mkdirSync(modelPath, { recursive: true });
+writeFileSync(join(modelPath, "config.json"), "{}\n", "utf8");
+
 writeFileSync(
   join(out, "settings.json"),
-  `${JSON.stringify({ "pali.path": binary, "pali.checkUpdates": false }, null, 2)}\n`,
+  `${JSON.stringify(
+    { "pali.path": binary, "pali.checkUpdates": false, "pali.modelPath": modelPath },
+    null,
+    2,
+  )}\n`,
   "utf8",
 );
 
