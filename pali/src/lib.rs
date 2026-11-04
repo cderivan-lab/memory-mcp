@@ -14,6 +14,7 @@ pub mod embedding;
 pub mod error;
 /// Filesystem utilities — atomic writes, path helpers, crash-safe temp-file-then-rename.
 pub mod fs_util;
+mod git_read;
 /// Passive subsystem health recording.
 pub mod health;
 /// HNSW vector index for approximate nearest-neighbour search.
