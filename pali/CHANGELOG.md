@@ -1,3 +1,20 @@
+## [1.1.0] - 2026-11-04
+
+### Changed
+
+- **Git reads go through `gix`; merge and push stay on libgit2.** Resolving
+  HEAD, comparing two commits' trees and reading blobs now use `gix` behind
+  `pali/src/git_read.rs`, so reads no longer take the writer's mutex and cannot
+  block behind a commit. Repository init, staging, commits, checkout, fetch,
+  merge and push remain on `git2`, because gitoxide 0.90 has no shippable merge
+  or push. The change-set contract is unchanged. `MemoryError` gains a `Gix`
+  variant on its non-exhaustive enum, and `gix` is built without transport, TLS
+  or credential features, so the TLS consolidation in ADR-0023 is unaffected.
+  See ADR-0053.
+- **The repository scanner enumerates untracked files through `gix` status**
+  instead of libgit2. Ignore rules and per-file expansion are unchanged; a
+  parity test pins both implementations to the same set of paths.
+
 ## [1.0.1] - 2026-11-02
 
 - **aarch64 Linux builds assemble again.** `gemm-common` (via candle-core)
