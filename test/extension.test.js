@@ -140,7 +140,7 @@ test("MCP definition points at the configured stdio server", () => {
       PALI_BRANCH: "trunk",
       PALI_REPO_PATH: "/tmp/my repo",
       PALI_REMOTE_URL: "https://example.com/mem.git",
-      PALI_REQUIRE_REMOTE_SYNC: "1",
+      PALI_REQUIRE_REMOTE_SYNC: "true",
       PALI_GIT_TOKEN: "ghp_example",
     },
   });
@@ -148,7 +148,8 @@ test("MCP definition points at the configured stdio server", () => {
 
 test("remoteSync exports PALI_REQUIRE_REMOTE_SYNC only when enabled", () => {
   const on = mcpServerDefinition(settings, token);
-  assert.equal(on.env.PALI_REQUIRE_REMOTE_SYNC, "1");
+  // The clap argument is a value-taking bool: `true`/`false`, not `1`.
+  assert.equal(on.env.PALI_REQUIRE_REMOTE_SYNC, "true");
 
   const off = mcpServerDefinition({ ...settings, remoteSync: false }, token);
   assert.equal(off.env.PALI_REQUIRE_REMOTE_SYNC, undefined);
