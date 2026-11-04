@@ -253,7 +253,6 @@ async function bootstrapWorkspace(
   const labels: Record<WorkspaceBootstrapKind, string> = {
     scan: 'Scan workspace',
     index: 'Index workspace',
-    'scan-repos': 'Scan repositories',
   };
   const label = labels[kind];
   const folder = vscode.workspace.workspaceFolders?.[0];
@@ -374,8 +373,6 @@ function activate(context: vscode.ExtensionContext): void {
       bootstrapWorkspace('scan', context, output)),
     vscode.commands.registerCommand('pali.index', () =>
       bootstrapWorkspace('index', context, output)),
-    vscode.commands.registerCommand('pali.scanRepositories', () =>
-      bootstrapWorkspace('scan-repos', context, output)),
     vscode.lm?.registerMcpServerDefinitionProvider?.(MCP_PROVIDER_ID, {
       onDidChangeMcpServerDefinitions: serverChanged.event,
       provideMcpServerDefinitions: async (): Promise<vscode.McpServerDefinition[]> => {

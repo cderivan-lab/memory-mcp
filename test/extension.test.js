@@ -214,14 +214,14 @@ test("index hands the embedding model to the CLI", () => {
   assert.equal(configured.env.PALI_MODEL_DIR, "/custom/models");
 });
 
-test("scan-repos carries blame, size, and memory settings", () => {
+test("scan carries blame, size, and memory settings", () => {
   const defaults = workspaceBootstrapCommand(
-    "scan-repos",
+    "scan",
     { ...settings, scanSaveMemories: true, repoPath: "", scope: "" },
     "/work/repo",
   );
   assert.deepEqual(defaults.args, [
-    "scan-repos",
+    "scan",
     "--workspace",
     "/work/repo",
     "--save-memories",
@@ -229,7 +229,7 @@ test("scan-repos carries blame, size, and memory settings", () => {
   assert.equal(defaults.env.PALI_MODEL_DIR, undefined, "scanning never loads the model");
 
   const configured = workspaceBootstrapCommand(
-    "scan-repos",
+    "scan",
     {
       ...settings,
       scanSaveMemories: true,
@@ -241,7 +241,7 @@ test("scan-repos carries blame, size, and memory settings", () => {
     "/work/repo",
   );
   assert.deepEqual(configured.args, [
-    "scan-repos",
+    "scan",
     "--workspace",
     "/work/repo",
     "--blame",
@@ -256,15 +256,15 @@ test("scan-repos carries blame, size, and memory settings", () => {
 
   // With saving off, the memory-repository flags stay out entirely.
   const artifactsOnly = workspaceBootstrapCommand(
-    "scan-repos",
+    "scan",
     { ...settings, scanSaveMemories: false, repoPath: "/memories", scope: "my-repo" },
     "/work/repo",
   );
-  assert.deepEqual(artifactsOnly.args, ["scan-repos", "--workspace", "/work/repo"]);
+  assert.deepEqual(artifactsOnly.args, ["scan", "--workspace", "/work/repo"]);
 });
 
 test("every bootstrap subcommand carries the configured log level", () => {
-  for (const kind of ["scan", "index", "scan-repos"]) {
+  for (const kind of ["scan", "index"]) {
     const invocation = workspaceBootstrapCommand(
       kind,
       { ...settings, logLevel: "debug" },
@@ -292,7 +292,7 @@ test("bootstrap summaries report the artifacts the run produced", () => {
 
   assert.equal(
     workspaceBootstrapSummary(
-      "scan-repos",
+      "scan",
       JSON.stringify({
         repositories: 1,
         accepted_files: 12,

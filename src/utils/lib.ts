@@ -154,7 +154,7 @@ export function mcpServerDefinition(
 }
 
 /** Workspace bootstrap subcommands that run against a folder on disk. */
-export type WorkspaceBootstrapKind = "scan" | "index" | "scan-repos";
+export type WorkspaceBootstrapKind = "scan" | "index";
 
 /** A resolved CLI invocation for one workspace bootstrap run. */
 export interface WorkspaceBootstrapCommand {
@@ -167,11 +167,10 @@ export interface WorkspaceBootstrapCommand {
  * Build the `pali scan` / `pali index` invocation for a workspace folder.
  *
  * The CLI writes its artifacts under `<workspace>/.pali` by default. `scan`
- * and `scan-repos` only read text files and never load the model; `index`
- * embeds every chunk, so it receives the same model directory the server
- * uses. `scan-repos` alone can commit the insight digest into the memory
- * repository (`--save-memories`), which is the only path here that writes
- * outside the artifacts directory.
+ * reads text files and never loads the model; `index` embeds every chunk, so
+ * it receives the same model directory the server uses. `scan` alone can
+ * commit the insight digest into the memory repository (`--save-memories`),
+ * which is the only path here that writes outside the artifacts directory.
  */
 export function workspaceBootstrapCommand(
   kind: WorkspaceBootstrapKind,
@@ -188,7 +187,7 @@ export function workspaceBootstrapCommand(
   if (config.logLevel) env.RUST_LOG = rustLogFilter(config.logLevel);
 
   const args = [kind, "--workspace", workspaceRoot];
-  if (kind === "scan-repos") {
+  if (kind === "scan") {
     if (config.scanBlame) args.push("--blame");
     if (config.scanMaxFileBytes) {
       args.push("--max-file-bytes", String(config.scanMaxFileBytes));
@@ -222,13 +221,15 @@ export function workspaceBootstrapSummary(
     return text || `Pali: ${kind} finished without a summary`;
   }
   const count = (key: string): number => Number(summary[key] ?? 0);
-  if (kind === "scan-repos") {
-    return (
-      `Pali: scanned ${count("accepted_files")} files ` +
-      `(${count("findings")} findings). Insights: ${summary.insights}`
-    );
-  }
   if (kind === "scan") {
+    // The git-aware pass adds the manifest and codebase insights; a plain
+    // directory still gets the file and secret counts.
+    if (typeof summary.insights === "string") {
+      return (
+        `Pali: scanned ${count("accepted_files")} files ` +
+        `(${count("findings")} findings). Insights: ${summary.insights}`
+      );
+    }
     return (
       `Pali: scanned ${count("files")} files ` +
       `(${count("sensitive")} sensitive, ${count("findings")} potential secrets). ` +

@@ -11,6 +11,12 @@
   variant on its non-exhaustive enum, and `gix` is built without transport, TLS
   or credential features, so the TLS consolidation in ADR-0023 is unaffected.
   See ADR-0053.
+- **`scan-repos` is folded into `scan`.** `pali scan` is now git-aware when the
+  workspace is a repository: it writes the security report, the manifest and
+  the codebase insights, and accepts `--blame`, `--max-file-bytes`,
+  `--save-memories`, `--repo-path` and `--scope`. A plain directory still gets
+  the file and secret report. The extension exposes one
+  `Pali: Scan Workspace` command; `pali.scanRepositories` is removed.
 - **The repository scanner enumerates untracked files through `gix` status**
   instead of libgit2. Ignore rules and per-file expansion are unchanged; a
   parity test pins both implementations to the same set of paths.

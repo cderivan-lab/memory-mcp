@@ -30,13 +30,13 @@
     "prepare": "npm run compile && npm run icon",
     "postinstall": "node scripts/patch-url-parse.js",
     "vscode:uninstall": "node ./out/uninstall.js",
-    "test": "node --test test/extension.test.js",
+    "test": "node --test test/extension.test.js test/extension.activation.test.js",
     "pkginstall": "code --install-extension pali-memory-0.3.0.vsix",
     "pkguninstall": "code --uninstall-extension cderivan.pali-memory",
     "reinstall": "npm run pkguninstall & npm run pkginstall",
     "test:e2e": "vscode-test",
     "test:e2e:ui": "node scripts/e2e-ui-fixtures.mjs && node scripts/run-e2e-ui.mjs",
-    "test:coverage": "node  --experimental-test-coverage --test test/extension.test.js",
+    "test:coverage": "node --experimental-test-coverage --test test/extension.test.js test/extension.activation.test.js",
     "test:vsix": "node --test test/vsix.test.js",
     "clean": "rm -rf out node_modules target pali-memory-*.vsix tsconfig.tsbuildinfo",
     "vscode:prepublish": "npm run compile && npm run icon",
@@ -84,10 +84,6 @@
       {
         "command": "pali.scan",
         "title": "Pali: Scan Workspace"
-      },
-      {
-        "command": "pali.scanRepositories",
-        "title": "Pali: Scan Repositories"
       },
       {
         "command": "pali.index",
