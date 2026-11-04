@@ -17,7 +17,7 @@ openspec/**
 .freebuff/**
 .vscode-test.mjs
 tmp/**
-hooks/test/**
+hooks/**
 # Hook sources for the retired per-event layout and the hooks' own dev
 # scaffolding: the extension only runs copilot-hooks.mjs (which imports
 # pali-client.mjs).
@@ -58,3 +58,6 @@ node_modules/**/LICENSE*
 .DS_Store
 test-resources/**
 .e2e-ui/**
+node_modules/**
+.pali/**
+coverage/**
