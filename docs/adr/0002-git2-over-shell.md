@@ -1,7 +1,10 @@
 # ADR-0002: git2 Over Shelling Out to Git CLI
 
 ## Status
-Accepted
+Superseded in part by [ADR-0053](0053-gix-read-paths.md). Read-only access
+(HEAD resolution, tree diffs, blob reads) now goes through `gix`; the decision
+below still governs every mutating operation, and still rejects shelling out to
+the `git` CLI.
 
 ## Context
 The server needs git operations (init, add, commit, push, pull) for memory persistence and sync.

@@ -4,6 +4,11 @@
 Accepted. The D-Bus system link noted below was removed with the
 keyring backend by [ADR-0050](0050-minimal-local-core.md).
 
+> **Update:** ADR-0053 added `gix` for read-only git access with
+> `default-features = false` and only the `revision` and `sha1` features, so no
+> transport, TLS, or credential stack comes with it. The 2-TLS-implementation
+> result below is unchanged.
+
 > **Update:** ADR-0049 removed the `hf-hub` dependency entirely, so the
 > `default-features = false` / `ureq` / `rustls-tls` guidance for it below no
 > longer applies — there is nothing left to configure. The TLS consolidation,
