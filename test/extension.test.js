@@ -37,6 +37,7 @@ const settings = {
   binPath: "/opt/pali bin/pali",
   repoPath: "/tmp/my repo",
   remoteUrl: "https://example.com/mem.git",
+  remoteSync: true,
   branch: "trunk",
   scope: "org/team",
 };
@@ -139,9 +140,18 @@ test("MCP definition points at the configured stdio server", () => {
       PALI_BRANCH: "trunk",
       PALI_REPO_PATH: "/tmp/my repo",
       PALI_REMOTE_URL: "https://example.com/mem.git",
+      PALI_REQUIRE_REMOTE_SYNC: "1",
       PALI_GIT_TOKEN: "ghp_example",
     },
   });
+});
+
+test("remoteSync exports PALI_REQUIRE_REMOTE_SYNC only when enabled", () => {
+  const on = mcpServerDefinition(settings, token);
+  assert.equal(on.env.PALI_REQUIRE_REMOTE_SYNC, "1");
+
+  const off = mcpServerDefinition({ ...settings, remoteSync: false }, token);
+  assert.equal(off.env.PALI_REQUIRE_REMOTE_SYNC, undefined);
 });
 
 test("MCP definition exports the log level as a scoped RUST_LOG filter", () => {
@@ -645,7 +655,12 @@ test("no token means no credential variable, even for HTTPS", () => {
 });
 
 test("MCP definition omits empty optional settings", () => {
-  const definition = mcpServerDefinition({ ...settings, repoPath: "", remoteUrl: "" });
+  const definition = mcpServerDefinition({
+    ...settings,
+    repoPath: "",
+    remoteUrl: "",
+    remoteSync: false,
+  });
 
   assert.deepEqual(definition.env, { NO_COLOR: "1", PALI_BRANCH: "trunk" });
 });

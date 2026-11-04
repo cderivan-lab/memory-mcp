@@ -22,6 +22,11 @@ pre-0.19 artifact and its former environment names.
 | `--require-remote-sync` | `PALI_REQUIRE_REMOTE_SYNC` | `false` | Pull every repository before startup index freshness is decided; requires `--remote-url` |
 | `--recall-log-busy-timeout` | `PALI_RECALL_LOG_BUSY_TIMEOUT` | `5` | SQLite lock wait in seconds |
 
+The VS Code extension exposes `--require-remote-sync` as `pali.remoteSync`
+(default `false`) and passes it to the server as `PALI_REQUIRE_REMOTE_SYNC`.
+When enabled, the server pulls every repository before the startup
+index-freshness decision and refuses to start when `pali.remoteUrl` is empty.
+
 `pali serve` serves one MCP session over stdin/stdout. Diagnostics stay on
 stderr so stdout carries only MCP frames. Each concurrent client needs its own
 process.

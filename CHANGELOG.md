@@ -2,6 +2,12 @@
 
 ## Changes
 
+- **New `pali.remoteSync` extension setting (default `false`).** When
+  enabled, the MCP server is launched with `PALI_REQUIRE_REMOTE_SYNC=1`, so it
+  pulls every repository from the remote before the startup index-freshness
+  decision and refuses to start when `pali.remoteUrl` is not set. With the
+  default `false`, the server starts without a startup pull and syncs only on
+  an explicit `sync` tool call.
 - **The VSIX ships only runtime files.** Dev-only entries (`.vscode-test.mjs`,
   `.freebuff/`, the hooks' `package.json`/lockfile, and the retired per-event
   hook sources and tests) are excluded; the extension ships

@@ -101,6 +101,7 @@ async function settings(
     binPath: binary.path ?? configured,
     repoPath: String(config.get('repoPath') || '').trim(),
     remoteUrl: String(config.get('remoteUrl') || '').trim(),
+    remoteSync: config.get<boolean>('remoteSync') ?? false,
     branch: String(config.get('branch') || 'main').trim() || 'main',
     scope: String(config.get('scope') || '').trim(),
     modelDir: modelDir ?? undefined,

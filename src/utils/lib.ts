@@ -20,6 +20,9 @@ export interface ExtensionSettings {
   binPath: string;
   repoPath: string;
   remoteUrl: string;
+  // Pull every repository from the remote before startup index freshness is
+  // decided; the server refuses to start without a remote when enabled.
+  remoteSync: boolean;
   branch: string;
   scope: string;
   // Directory of an auto-installed embedding model, when one is present.
@@ -119,6 +122,11 @@ export function mcpServerDefinition(
   const env: Record<string, string> = { PALI_BRANCH: config.branch, NO_COLOR: "1" };
   if (config.repoPath) env.PALI_REPO_PATH = config.repoPath;
   if (config.remoteUrl) env.PALI_REMOTE_URL = config.remoteUrl;
+  // Off by default: without it the server starts even on a stale or fresh
+  // repo path and only syncs on an explicit `sync` tool call. When enabled
+  // the server pulls every repository before the startup index-freshness
+  // decision and refuses to start without a remote.
+  if (config.remoteSync) env.PALI_REQUIRE_REMOTE_SYNC = "1";
   // The token comes from secret storage, not settings, and only authenticates
   // HTTPS transports. A local path remote never needs one, so it is not passed
   // there — that would widen the token's exposure for no reason.

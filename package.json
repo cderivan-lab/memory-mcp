@@ -112,6 +112,11 @@
           "description": "Git remote for the memory repository: an HTTPS or SSH URL, or an absolute path to a local repository. Empty runs local-only, with no push or pull.",
           "type": "string"
         },
+        "pali.remoteSync": {
+          "default": false,
+          "description": "Pull every repository from the remote before startup index freshness is decided, and refuse to start when pali.remoteUrl is not set. Requires a non-empty pali.remoteUrl.",
+          "type": "boolean"
+        },
         "pali.repoPath": {
           "default": "",
           "description": "Git-backed memory repository. Empty uses the pali default (~/.memory-mcp).",

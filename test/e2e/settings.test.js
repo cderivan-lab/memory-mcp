@@ -194,6 +194,73 @@ suite("pali extension end-to-end", () => {
     }
   });
 
+  test("pali.remoteSync reaches the MCP server definition", async () => {
+    const extension = vscode.extensions.getExtension(EXTENSION_ID);
+    assert.ok(extension, "the extension under test must be installed");
+    assert.ok(
+      extension.packageJSON.contributes?.configuration?.properties?.["pali.remoteSync"],
+      "pali.remoteSync must be a contributed setting",
+    );
+    assert.equal(
+      extension.packageJSON.contributes.configuration.properties["pali.remoteSync"].default,
+      false,
+      "pali.remoteSync must default to false",
+    );
+
+    await applyProfile({
+      remoteUrl: "https://example.com/mem.git",
+      remoteSync: true,
+    });
+
+    // The editor has no read-back for a registered provider's definitions, so
+    // run the definition builder `activate` uses with the setting the editor
+    // actually returned, mirroring the modelPath test.
+    const { mcpServerDefinition } = require(
+      path.join(extension.extensionPath, "out", "utils", "lib"),
+    );
+    const config = vscode.workspace.getConfiguration(SECTION);
+    const definition = mcpServerDefinition(
+      {
+        binPath: String(config.get("path") || "pali"),
+        repoPath: String(config.get("repoPath") || "").trim(),
+        remoteUrl: String(config.get("remoteUrl") || "").trim(),
+        remoteSync: config.get("remoteSync") ?? false,
+        branch: String(config.get("branch") || "main").trim() || "main",
+        scope: String(config.get("scope") || "").trim(),
+      },
+      undefined,
+    );
+
+    assert.equal(
+      config.get("remoteSync"),
+      true,
+      "pali.remoteSync must round-trip through the editor's configuration",
+    );
+    assert.equal(
+      definition.env.PALI_REQUIRE_REMOTE_SYNC,
+      "1",
+      "the MCP server definition must launch with PALI_REQUIRE_REMOTE_SYNC when enabled",
+    );
+
+    await applyProfile({ remoteSync: false });
+    const off = mcpServerDefinition(
+      {
+        binPath: String(config.get("path") || "pali"),
+        repoPath: String(config.get("repoPath") || "").trim(),
+        remoteUrl: String(config.get("remoteUrl") || "").trim(),
+        remoteSync: config.get("remoteSync") ?? false,
+        branch: String(config.get("branch") || "main").trim() || "main",
+        scope: String(config.get("scope") || "").trim(),
+      },
+      undefined,
+    );
+    assert.equal(
+      off.env.PALI_REQUIRE_REMOTE_SYNC,
+      undefined,
+      "the MCP server definition must not launch with PALI_REQUIRE_REMOTE_SYNC when disabled",
+    );
+  });
+
   test("a local-only profile omits the optional hook variables", async () => {
     await applyProfile({
       repoPath: "",
@@ -308,6 +375,7 @@ suite("pali extension end-to-end", () => {
           binPath: String(config.get("path") || "pali"),
           repoPath: String(config.get("repoPath") || "").trim(),
           remoteUrl: String(config.get("remoteUrl") || "").trim(),
+          remoteSync: config.get("remoteSync") ?? false,
           branch: String(config.get("branch") || "main").trim() || "main",
           scope: String(config.get("scope") || "").trim(),
           modelPath: String(config.get("modelPath") || "").trim(),
