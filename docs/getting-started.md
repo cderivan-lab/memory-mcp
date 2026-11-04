@@ -85,14 +85,32 @@ listed, but `index` and `dataset` never chunk their contents. `--limit N`
 bounds a sample; files are sorted first, so the prefix is deterministic.
 `index` needs the embedding model provisioned with `scripts/fetch-model.sh`.
 
+`pali scan-repos` is the git-aware variant. It scans the workspace's own git
+repository (nested repositories are not followed), lists its tracked and
+untracked-but-not-ignored files, and writes
+`.pali/security-scan.json`, `.pali/scan-manifest.jsonl`, and
+`.pali/insights.json`: repository, path, language, HEAD commit, content hash,
+recent commit subjects, and — with `--blame` — per-line commit IDs. The
+insights are deterministic counts and paths (language mix, top-level areas,
+largest files, TODO/FIXME markers, test-file ratio, project files), never model
+output or file content. A file whose path or contents look sensitive is
+excluded whole rather than redacted, and findings name the rule, path, and line,
+never the matched value.
+
+`--save-memories` also stores the insight digest as one `codebase-insights`
+memory in the pali memory repository (default `~/.memory-mcp`), so later agent
+sessions can recall how the project is laid out. `--scope` defaults to the
+workspace directory name.
+
 ## Install the VS Code extension
 
 In VS Code, the [Pali Memory extension](../README.md#install)
 registers the server for you: enabling the extension adds a `pali` MCP server
-built from the `pali.binPath`, `pali.repoPath`, `pali.remoteUrl`, and
-`pali.branch` settings, then starts it on demand. It also writes
-`.github/hooks/pali.json`, so Copilot recalls project memories at session
-start and captures a digest when the agent stops. VS Code may ask once to trust
+built from the `pali.binPath`, `pali.repoPath`, `pali.remoteUrl`,
+`pali.branch`, and `pali.modelPath` settings, then starts it on demand. It
+also writes the user-level
+`~/.copilot/hooks/pali.json` once per machine, so Copilot recalls project
+memories at session start and captures a digest when the agent stops. VS Code may ask once to trust
 the server.
 
 ## Store and retrieve a memory

@@ -22,6 +22,11 @@ pre-0.19 artifact and its former environment names.
 | `--require-remote-sync` | `PALI_REQUIRE_REMOTE_SYNC` | `false` | Pull every repository before startup index freshness is decided; requires `--remote-url` |
 | `--recall-log-busy-timeout` | `PALI_RECALL_LOG_BUSY_TIMEOUT` | `5` | SQLite lock wait in seconds |
 
+The VS Code extension exposes `--require-remote-sync` as `pali.remoteSync`
+(default `false`) and passes it to the server as `PALI_REQUIRE_REMOTE_SYNC`.
+When enabled, the server pulls every repository before the startup
+index-freshness decision and refuses to start when `pali.remoteUrl` is empty.
+
 `pali serve` serves one MCP session over stdin/stdout. Diagnostics stay on
 stderr so stdout carries only MCP frames. Each concurrent client needs its own
 process.
@@ -121,7 +126,12 @@ before starting the server.
 Model files are resolved from, in order:
 
 1. `PALI_MODEL_DIR` — a directory containing `config.json`, `tokenizer.json`,
-   and `model.safetensors`
+   and `model.safetensors`. The VS Code extension exports this from the
+   `pali.modelPath` setting (or, when that is empty, from the model it
+   auto-installed), so setting `pali.modelPath` in VS Code is the
+   configuration-side equivalent. A directory missing any of the files is
+   reported in an error notification and ignored, so the server starts on the
+   model the extension installed instead of failing with an opaque error.
 2. `<current-working-directory>/models/bge-small-en-v1.5` — the VS Code
    extension starts the server from the workspace folder, so a model vendored
    in the repository (or fetched there) is found without extra configuration
