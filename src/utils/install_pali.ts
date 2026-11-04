@@ -713,7 +713,6 @@ export interface UI {
   shouldReuse(release: string): Promise<boolean | undefined>;
   promptReload(message: string): Promise<void>;
   promptUpdate(oldVersion: string, newVersion: string): Promise<void>;
-  promptInstall(version: string): Promise<void>;
 }
 
 /**

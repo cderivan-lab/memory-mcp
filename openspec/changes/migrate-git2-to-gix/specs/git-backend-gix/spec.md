@@ -97,19 +97,3 @@ any `CheckoutBuilder`.
 - **WHEN** `read_memory` looks up a blob that does not exist
 - **THEN** the returned error is `MemoryError::Gix` and its message names the
   missing object, not a libgit2 status code
-
-## MODIFIED Requirements
-
-### Requirement: (repository-scanner) Scanner opens repositories through gix
-
-`pali/src/scanner.rs` SHALL obtain a `Repository` through gix and read
-`head_commit`, `commit_messages`, `list_paths`, and `blame_lines` through the
-`git_read` seam. The scanner's observable output — file list, commit subjects,
-blame entries — is unchanged.
-
-#### Scenario: Scanner output is identical to the libgit2 scanner
-
-- **WHEN** `pali scan-repos` runs on a repository with 200 tracked files and
-  12 untracked files
-- **THEN** the manifest is byte-identical to the same scan taken with the
-  libgit2 scanner

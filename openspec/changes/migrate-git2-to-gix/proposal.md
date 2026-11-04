@@ -72,9 +72,10 @@ a first-class gix capability and is gated behind the subprocess fallback.
 
 ## Impact
 
-- `pali/Cargo.toml`: add `gix` (features `revision`, `sha1`, `status`,
-  `extras` default) and keep `git2` only behind a `push-fallback` feature;
-  remove `vendored-openssl` once push no longer needs it.
+- `pali/Cargo.toml`: add `gix` (features `revision`, `sha1`, `status`; the
+  `network` feature adds `blocking-network-client` and
+  `blocking-http-transport-reqwest-rust-tls`) and keep `git2` only behind a
+  `push-fallback` feature; remove `vendored-openssl` once push no longer needs it.
 - `pali/src/scanner.rs`, `pali/src/git_read.rs`, `pali/src/repo.rs`,
   `pali/src/error.rs`: the four modules that currently name `git2::`.
 - `pali/src/git_write.rs` (new): the pure-tree commit, three-way merge, and
