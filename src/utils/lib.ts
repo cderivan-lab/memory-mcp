@@ -125,8 +125,9 @@ export function mcpServerDefinition(
   // Off by default: without it the server starts even on a stale or fresh
   // repo path and only syncs on an explicit `sync` tool call. When enabled
   // the server pulls every repository before the startup index-freshness
-  // decision and refuses to start without a remote.
-  if (config.remoteSync) env.PALI_REQUIRE_REMOTE_SYNC = "1";
+  // decision and refuses to start without a remote. The clap argument is a
+  // value-taking bool, so it accepts `true`/`false` — not `1`.
+  if (config.remoteSync) env.PALI_REQUIRE_REMOTE_SYNC = "true";
   // The token comes from secret storage, not settings, and only authenticates
   // HTTPS transports. A local path remote never needs one, so it is not passed
   // there — that would widen the token's exposure for no reason.

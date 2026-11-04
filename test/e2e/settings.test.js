@@ -238,7 +238,7 @@ suite("pali extension end-to-end", () => {
     );
     assert.equal(
       definition.env.PALI_REQUIRE_REMOTE_SYNC,
-      "1",
+      "true",
       "the MCP server definition must launch with PALI_REQUIRE_REMOTE_SYNC when enabled",
     );
 

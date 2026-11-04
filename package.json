@@ -26,7 +26,7 @@
     "postinstall": "node scripts/patch-url-parse.js",
     "vscode:uninstall": "node ./out/uninstall.js",
     "test": "node --test test/extension.test.js",
-    "pkginstall": "code --install-extension pali-memory-*.vsix",
+    "pkginstall": "code --install-extension pali-memory-0.3.0.vsix",
     "pkguninstall": "code --uninstall-extension cderivan.pali-memory",
     "reinstall": "npm run pkguninstall & npm run pkginstall",
     "test:e2e": "vscode-test",
