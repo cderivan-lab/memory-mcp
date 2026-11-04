@@ -473,7 +473,6 @@ test("a missing binary is offered for download even when update checks are off",
     shouldReuse: async () => undefined,
     promptReload: async () => {},
     promptUpdate: async () => {},
-    promptInstall: async () => {},
   };
   try {
     const result = await prepare(ui, false);
@@ -519,7 +518,6 @@ test("a usable pali.modelPath suppresses the model download offer", async () => 
     shouldReuse: async () => undefined,
     promptReload: async () => {},
     promptUpdate: async () => {},
-    promptInstall: async () => {},
   };
 
   try {
@@ -827,7 +825,6 @@ function makeInstallUi(storage, { token = "test-token", modelAnswer = "Later" } 
     shouldReuse: async () => undefined,
     promptReload: async (message) => calls.reloads.push(message),
     promptUpdate: async () => {},
-    promptInstall: async () => {},
     calls,
   };
 }

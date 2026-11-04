@@ -135,23 +135,10 @@ class UI {
     const response =
         await vscode.window.showInformationMessage(message, update, dontCheck);
     if (response === update) {
-      common.installLatest(this);
+      await common.installLatest(this);
     } else if (response === dontCheck) {
       config.update('checkUpdates', false, vscode.ConfigurationTarget.Global);
     }
-  }
-
-  async promptInstall(version: string) {
-    const p = this.paliPath;
-    let message = '';
-    if (p.indexOf(path.sep) < 0) {
-      message += `The '${p}' language server was not found on your PATH.\n`;
-    } else {
-      message += `The pali binary '${p}' was not found.\n`;
-    }
-    message += `Would you like to download and install pali ${version}?`;
-    if (await vscode.window.showInformationMessage(message, 'Install'))
-      common.installLatest(this);
   }
 
   async resolvePaliPath() {
