@@ -20,22 +20,22 @@
 //! be saved as one memory with [`save_insights`].
 
 use std::{
-    collections::{ BTreeMap, BTreeSet },
+    collections::{BTreeMap, BTreeSet},
     fmt::Write as _,
-    path::{ Path, PathBuf },
-    sync::{ Arc, OnceLock },
+    path::{Path, PathBuf},
+    sync::{Arc, OnceLock},
 };
 
 use git2::StatusOptions;
 use regex::Regex;
 use serde::Serialize;
-use sha2::{ Digest, Sha256 };
+use sha2::{Digest, Sha256};
 
 use crate::{
     error::MemoryError,
     fs_util,
-    types::{ Memory, MemoryMetadata, Scope, ScopePath },
-    workspace::{ is_binary, is_sensitive, language },
+    types::{Memory, MemoryMetadata, Scope, ScopePath},
+    workspace::{is_binary, is_sensitive, language},
 };
 
 /// Default maximum size of a file included in a scan.
@@ -310,14 +310,17 @@ struct RepositoryContext<'a> {
 /// followed. The workspace is read-only: nothing outside the artifacts
 /// directory is written.
 pub fn scan_repositories(
-    options: &RepositoryScanOptions
+    options: &RepositoryScanOptions,
 ) -> Result<RepositoryScanSummary, MemoryError> {
     let _span =
         tracing::info_span!("workspace.repositories", root = %options.root.display()).entered();
 
     if !is_repository(&options.root) {
         return Err(MemoryError::InvalidInput {
-            reason: format!("workspace is not a git repository: {}", options.root.display()),
+            reason: format!(
+                "workspace is not a git repository: {}",
+                options.root.display()
+            ),
         });
     }
 
@@ -336,12 +339,25 @@ pub fn scan_repositories(
         commit: &commit,
         messages: &messages,
     };
-    scan_repository(&repo, &context, options, artifacts_prefix.as_deref(), &mut scan)?;
+    scan_repository(
+        &repo,
+        &context,
+        options,
+        artifacts_prefix.as_deref(),
+        &mut scan,
+    )?;
 
-    let ScanAccumulator { mut records, facts, findings, skipped } = scan;
+    let ScanAccumulator {
+        mut records,
+        facts,
+        findings,
+        skipped,
+    } = scan;
     let accepted_files = records.len();
     let finding_count = findings.len();
-    let selected = options.limit.map_or(accepted_files, |limit| accepted_files.min(limit));
+    let selected = options
+        .limit
+        .map_or(accepted_files, |limit| accepted_files.min(limit));
     records.truncate(selected);
 
     let insights = derive_insights(&label, &commit, &messages, &facts);
@@ -359,7 +375,7 @@ pub fn scan_repositories(
             accepted_files,
             findings,
             policy: "whole-file exclusion; findings contain no matched values",
-        })
+        }),
     )?;
     write_jsonl(&manifest, &records)?;
 
@@ -404,7 +420,7 @@ fn scan_repository(
     context: &RepositoryContext<'_>,
     options: &RepositoryScanOptions,
     artifacts_prefix: Option<&str>,
-    scan: &mut ScanAccumulator
+    scan: &mut ScanAccumulator,
 ) -> Result<(), MemoryError> {
     let repo_path = options.root.as_path();
 
@@ -490,14 +506,13 @@ fn scan_repository(
 
         let issues = findings_in(&content);
         if !issues.is_empty() {
-            scan.findings.extend(
-                issues.into_iter().map(|(rule, line)| Finding {
+            scan.findings
+                .extend(issues.into_iter().map(|(rule, line)| Finding {
                     repo: context.name.to_string(),
                     path: relative.clone(),
                     rule,
                     line: Some(line),
-                })
-            );
+                }));
             scan.skipped += 1;
             continue;
         }
@@ -511,7 +526,11 @@ fn scan_repository(
             test: is_test_path(&relative),
         });
 
-        let blame = if options.blame { blame_lines(repo, &relative) } else { Vec::new() };
+        let blame = if options.blame {
+            blame_lines(repo, &relative)
+        } else {
+            Vec::new()
+        };
 
         scan.records.push(ManifestRecord {
             repo: context.name.to_string(),
@@ -577,9 +596,14 @@ fn list_paths(repo: &git2::Repository) -> Result<BTreeSet<String>, MemoryError> 
     }
 
     let mut statuses = StatusOptions::new();
-    statuses.include_untracked(true).recurse_untracked_dirs(true).include_ignored(false);
+    statuses
+        .include_untracked(true)
+        .recurse_untracked_dirs(true)
+        .include_ignored(false);
     for entry in repo.statuses(Some(&mut statuses))?.iter() {
-        if entry.status().contains(git2::Status::WT_NEW) && let Ok(path) = entry.path() {
+        if entry.status().contains(git2::Status::WT_NEW)
+            && let Ok(path) = entry.path()
+        {
             paths.insert(path.to_string());
         }
     }
@@ -589,7 +613,9 @@ fn list_paths(repo: &git2::Repository) -> Result<BTreeSet<String>, MemoryError> 
 
 fn is_artifacts_path(relative: &str, prefix: Option<&str>) -> bool {
     prefix.is_some_and(|prefix| {
-        relative.strip_prefix(prefix).is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+        relative
+            .strip_prefix(prefix)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
     })
 }
 
@@ -598,8 +624,7 @@ fn is_artifacts_path(relative: &str, prefix: Option<&str>) -> bool {
 fn parent_is_symlink(repo: &Path, path: &Path) -> bool {
     let mut current = path.parent();
     while let Some(directory) = current {
-        let is_symlink = std::fs
-            ::symlink_metadata(directory)
+        let is_symlink = std::fs::symlink_metadata(directory)
             .is_ok_and(|metadata| metadata.file_type().is_symlink());
         if is_symlink {
             return true;
@@ -616,15 +641,21 @@ fn parent_is_symlink(repo: &Path, path: &Path) -> bool {
 /// output. Matching is per path component, so a directory named `secrets`
 /// excludes everything below it.
 fn path_excluded(relative: &str) -> bool {
-    relative.split('/').any(|part| BLOCKED_DIRS.contains(&part) || path_pattern().is_match(part))
+    relative
+        .split('/')
+        .any(|part| BLOCKED_DIRS.contains(&part) || path_pattern().is_match(part))
 }
 
 /// Generated files are not source: they carry no design intent worth
 /// indexing and change on every build.
 pub(crate) fn is_generated(relative: &str, content: &str) -> bool {
-    relative.ends_with(".pb.go") ||
-        relative.contains(".gen.") ||
-        content.chars().take(GENERATED_SNIFF_CHARS).collect::<String>().contains("DO NOT EDIT")
+    relative.ends_with(".pb.go")
+        || relative.contains(".gen.")
+        || content
+            .chars()
+            .take(GENERATED_SNIFF_CHARS)
+            .collect::<String>()
+            .contains("DO NOT EDIT")
 }
 
 fn content_hash(content: &str) -> String {
@@ -731,11 +762,9 @@ fn derive_insights(repo: &str, commit: &str, messages: &[String], files: &[FileF
         test_files,
         languages: languages.into_iter().take(INSIGHT_TOP_N).collect(),
         areas: areas.into_iter().take(INSIGHT_TOP_N).collect(),
-        largest_files: largest_files
-            .into_iter()
-            .take(INSIGHT_TOP_N / 2)
-            .collect(),
-        markers: MARKERS.iter()
+        largest_files: largest_files.into_iter().take(INSIGHT_TOP_N / 2).collect(),
+        markers: MARKERS
+            .iter()
             .zip(markers)
             .filter(|(_, count)| *count > 0)
             .map(|(marker, count)| MarkerInsight { marker, count })
@@ -755,16 +784,23 @@ fn render_insights(insights: &Insights) -> String {
         "untracked files. Counts and paths only; excluded (sensitive) files are".to_string(),
         "not represented.".to_string(),
         String::new(),
-        format!("- Checkout: {}", if insights.commit.is_empty() {
-            "no commits".to_string()
-        } else {
-            insights.commit.clone()
-        }),
-        format!("- Files: {} ({} test files)", insights.files, insights.test_files)
+        format!(
+            "- Checkout: {}",
+            if insights.commit.is_empty() {
+                "no commits".to_string()
+            } else {
+                insights.commit.clone()
+            }
+        ),
+        format!(
+            "- Files: {} ({} test files)",
+            insights.files, insights.test_files
+        ),
     ];
 
     if !insights.languages.is_empty() {
-        let rendered = insights.languages
+        let rendered = insights
+            .languages
             .iter()
             .map(|language| {
                 format!(
@@ -779,7 +815,8 @@ fn render_insights(insights: &Insights) -> String {
         lines.push(format!("- Languages: {rendered}"));
     }
     if !insights.areas.is_empty() {
-        let rendered = insights.areas
+        let rendered = insights
+            .areas
             .iter()
             .map(|area| format!("{} {}", area.path, area.files))
             .collect::<Vec<_>>()
@@ -787,7 +824,8 @@ fn render_insights(insights: &Insights) -> String {
         lines.push(format!("- Areas: {rendered}"));
     }
     if !insights.largest_files.is_empty() {
-        let rendered = insights.largest_files
+        let rendered = insights
+            .largest_files
             .iter()
             .map(|file| format!("`{}` ({})", file.path, format_bytes(file.bytes)))
             .collect::<Vec<_>>()
@@ -795,7 +833,8 @@ fn render_insights(insights: &Insights) -> String {
         lines.push(format!("- Largest files: {rendered}"));
     }
     if !insights.markers.is_empty() {
-        let rendered = insights.markers
+        let rendered = insights
+            .markers
             .iter()
             .map(|marker| format!("{} {}", marker.marker, marker.count))
             .collect::<Vec<_>>()
@@ -803,7 +842,10 @@ fn render_insights(insights: &Insights) -> String {
         lines.push(format!("- Unfinished markers: {rendered}"));
     }
     if !insights.project_files.is_empty() {
-        lines.push(format!("- Project files: {}", insights.project_files.join(", ")));
+        lines.push(format!(
+            "- Project files: {}",
+            insights.project_files.join(", ")
+        ));
     }
     if !insights.recent_commits.is_empty() {
         lines.push(String::new());
@@ -837,12 +879,13 @@ fn is_test_path(path: &str) -> bool {
     let file_name = path.rsplit('/').next().unwrap_or(path);
     let lower = file_name.to_ascii_lowercase();
     let stem = lower.split('.').next().unwrap_or(&lower);
-    path.split('/').any(|part| matches!(part, "test" | "tests" | "spec" | "specs" | "__tests__")) ||
-        stem.ends_with("_test") ||
-        stem.ends_with("_spec") ||
-        stem.starts_with("test_") ||
-        lower.contains(".test.") ||
-        lower.contains(".spec.")
+    path.split('/')
+        .any(|part| matches!(part, "test" | "tests" | "spec" | "specs" | "__tests__"))
+        || stem.ends_with("_test")
+        || stem.ends_with("_spec")
+        || stem.starts_with("test_")
+        || lower.contains(".test.")
+        || lower.contains(".spec.")
 }
 
 /// Files that describe how a project is built, tested, or packaged.
@@ -850,23 +893,23 @@ fn is_project_file(path: &str) -> bool {
     let name = path.rsplit('/').next().unwrap_or(path);
     matches!(
         name,
-        "README" |
-            "README.md" |
-            "README.rst" |
-            "AGENTS.md" |
-            "CLAUDE.md" |
-            "CONTRIBUTING.md" |
-            "Cargo.toml" |
-            "package.json" |
-            "pyproject.toml" |
-            "requirements.txt" |
-            "go.mod" |
-            "Dockerfile" |
-            "Makefile" |
-            "deny.toml" |
-            "rust-toolchain.toml" |
-            "tsconfig.json" |
-            ".gitignore"
+        "README"
+            | "README.md"
+            | "README.rst"
+            | "AGENTS.md"
+            | "CLAUDE.md"
+            | "CONTRIBUTING.md"
+            | "Cargo.toml"
+            | "package.json"
+            | "pyproject.toml"
+            | "requirements.txt"
+            | "go.mod"
+            | "Dockerfile"
+            | "Makefile"
+            | "deny.toml"
+            | "rust-toolchain.toml"
+            | "tsconfig.json"
+            | ".gitignore"
     ) || path.starts_with(".github/workflows/")
 }
 
@@ -885,14 +928,14 @@ fn is_project_file(path: &str) -> bool {
 pub async fn save_insights(
     repo_path: &Path,
     scope: &str,
-    markdown: &str
+    markdown: &str,
 ) -> Result<(), MemoryError> {
     let repo = Arc::new(crate::repo::MemoryRepo::init_or_open(repo_path, None)?);
     let scope = Scope::Path(ScopePath::new(scope)?);
     let metadata = MemoryMetadata::new(
         scope,
         vec!["codebase-insights".to_string(), "scan".to_string()],
-        Some("pali scan-repos".to_string())
+        Some("pali scan-repos".to_string()),
     );
     let memory = Memory::new(INSIGHTS_MEMORY_NAME, markdown, metadata)?;
     repo.save_memory(&memory).await
@@ -908,7 +951,11 @@ pub fn default_scope(root: &Path) -> String {
     let sanitized: String = raw
         .chars()
         .map(|c| {
-            if c.is_alphanumeric() || matches!(c, '-' | '_' | '.') { c } else { '-' }
+            if c.is_alphanumeric() || matches!(c, '-' | '_' | '.') {
+                c
+            } else {
+                '-'
+            }
         })
         .collect();
     let trimmed = sanitized.trim_matches(|c| c == '-' || c == '.');
@@ -929,8 +976,9 @@ fn path_pattern() -> &'static Regex {
     PATTERN.get_or_init(|| {
         Regex::new(
             r"(?i)(^\.env($|\.)|credentials|secrets?|\.pem$|\.key$|\.p12$|\.pfx$|\.tfstate|\
-              id_rsa|id_ed25519|\.sqlite|\.db$|\.log$|dump|customer[_-]?data)"
-        ).expect("path pattern is valid")
+              id_rsa|id_ed25519|\.sqlite|\.db$|\.log$|dump|customer[_-]?data)",
+        )
+        .expect("path pattern is valid")
     })
 }
 
@@ -981,11 +1029,11 @@ fn findings_in(content: &str) -> Vec<(&'static str, usize)> {
     let mut found = Vec::new();
     for (rule, pattern) in rules() {
         for matched in pattern.find_iter(content) {
-            let line =
-                content[..matched.start()]
-                    .bytes()
-                    .filter(|byte| *byte == b'\n')
-                    .count() + 1;
+            let line = content[..matched.start()]
+                .bytes()
+                .filter(|byte| *byte == b'\n')
+                .count()
+                + 1;
             found.push((*rule, line));
         }
     }
@@ -997,8 +1045,7 @@ fn findings_in(content: &str) -> Vec<(&'static str, usize)> {
 // ---------------------------------------------------------------------------
 
 fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<(), MemoryError> {
-    let mut body = serde_json
-        ::to_vec_pretty(value)
+    let mut body = serde_json::to_vec_pretty(value)
         .map_err(|e| MemoryError::Internal(format!("serialise scan artifact: {e}")))?;
     body.push(b'\n');
     fs_util::atomic_write(path, &body)?;
@@ -1009,9 +1056,8 @@ fn write_jsonl<T: Serialize>(path: &Path, records: &[T]) -> Result<(), MemoryErr
     let mut body = String::new();
     for record in records {
         body.push_str(
-            &serde_json
-                ::to_string(record)
-                .map_err(|e| MemoryError::Internal(format!("serialise scan manifest: {e}")))?
+            &serde_json::to_string(record)
+                .map_err(|e| MemoryError::Internal(format!("serialise scan manifest: {e}")))?,
         );
         body.push('\n');
     }
@@ -1032,19 +1078,25 @@ mod tests {
     fn commit_all(dir: &Path, message: &str) -> String {
         let repo = git2::Repository::open(dir).expect("open repo");
         let mut index = repo.index().expect("index");
-        index.add_all(["."], git2::IndexAddOption::DEFAULT, None).expect("stage files");
+        index
+            .add_all(["."], git2::IndexAddOption::DEFAULT, None)
+            .expect("stage files");
         index.write().expect("write index");
         let tree_id = index.write_tree().expect("write tree");
         let tree = repo.find_tree(tree_id).expect("find tree");
         let signature = git2::Signature::now("Test", "test@example.invalid").expect("signature");
-        let parent = repo
-            .head()
-            .ok()
-            .and_then(|head| head.peel_to_commit().ok());
+        let parent = repo.head().ok().and_then(|head| head.peel_to_commit().ok());
         let parents: Vec<&git2::Commit<'_>> = parent.iter().collect();
-        repo.commit(Some("HEAD"), &signature, &signature, message, &tree, &parents)
-            .expect("commit")
-            .to_string()
+        repo.commit(
+            Some("HEAD"),
+            &signature,
+            &signature,
+            message,
+            &tree,
+            &parents,
+        )
+        .expect("commit")
+        .to_string()
     }
 
     fn repo_with(dir: &Path) -> git2::Repository {
@@ -1070,9 +1122,9 @@ mod tests {
         assert_eq!(summary.accepted_files, 2, "both clean files are accepted");
         assert_eq!(summary.selected, 2);
 
-        let report: serde_json::Value = serde_json
-            ::from_str(&fs::read_to_string(&summary.security_report).expect("report"))
-            .expect("parse report");
+        let report: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&summary.security_report).expect("report"))
+                .expect("parse report");
         assert_eq!(report["repositories"], 1);
         assert_eq!(report["accepted_files"], 2);
         assert_eq!(report["findings"].as_array().expect("findings").len(), 0);
@@ -1105,20 +1157,24 @@ mod tests {
         fs::create_dir_all(dir.path().join("config")).expect("mkdir config");
         fs::write(
             dir.path().join("config/credentials.json"),
-            "{\"token\": \"placeholder\"}\n"
-        ).expect("write credentials");
+            "{\"token\": \"placeholder\"}\n",
+        )
+        .expect("write credentials");
         fs::write(
             dir.path().join("src/leaky.rs"),
-            "let token = \"ghp_0123456789012345678901234567890123\";\n"
-        ).expect("write leaky");
+            "let token = \"ghp_0123456789012345678901234567890123\";\n",
+        )
+        .expect("write leaky");
         commit_all(dir.path(), "initial import");
 
         let summary = scan(dir.path());
 
-        assert_eq!(summary.accepted_files, 1, "only the clean source file reaches the manifest");
         assert_eq!(
-            summary.findings,
-            5,
+            summary.accepted_files, 1,
+            "only the clean source file reaches the manifest"
+        );
+        assert_eq!(
+            summary.findings, 5,
             "two path exclusions plus three content rules are reported"
         );
 
@@ -1149,7 +1205,9 @@ mod tests {
         }
         commit_all(dir.path(), "three files");
 
-        let options = RepositoryScanOptions::new(dir.path()).expect("options").with_limit(1);
+        let options = RepositoryScanOptions::new(dir.path())
+            .expect("options")
+            .with_limit(1);
         let summary = scan_repositories(&options).expect("scan");
 
         assert_eq!(summary.accepted_files, 3, "the whole workspace is scanned");
@@ -1197,7 +1255,10 @@ mod tests {
         assert_eq!(summary.accepted_files, 1, "only the workspace's own file");
         let manifest = fs::read_to_string(&summary.manifest).expect("manifest");
         assert!(manifest.contains("top.txt"));
-        assert!(!manifest.contains("inner.txt"), "nested repositories are not scanned");
+        assert!(
+            !manifest.contains("inner.txt"),
+            "nested repositories are not scanned"
+        );
     }
 
     #[test]
@@ -1207,7 +1268,9 @@ mod tests {
         fs::write(dir.path().join("notes.md"), "line one\nline two\n").expect("write");
         let commit = commit_all(dir.path(), "notes");
 
-        let options = RepositoryScanOptions::new(dir.path()).expect("options").with_blame(true);
+        let options = RepositoryScanOptions::new(dir.path())
+            .expect("options")
+            .with_blame(true);
         let summary = scan_repositories(&options).expect("scan");
 
         let manifest = fs::read_to_string(&summary.manifest).expect("manifest");
@@ -1217,7 +1280,10 @@ mod tests {
         assert_eq!(blame[0]["commit"], commit);
         assert_eq!(blame[0]["line"], 1);
         assert_eq!(blame[1]["line"], 2);
-        assert!(!manifest.contains("test@example.invalid"), "author identity is never persisted");
+        assert!(
+            !manifest.contains("test@example.invalid"),
+            "author identity is never persisted"
+        );
     }
 
     #[test]
@@ -1227,8 +1293,9 @@ mod tests {
         fs::write(dir.path().join(".gitignore"), "ignored.txt\n").expect("write ignore");
         fs::write(
             dir.path().join("generated.rs"),
-            "// DO NOT EDIT — generated\nfn generated() {}\n"
-        ).expect("write generated");
+            "// DO NOT EDIT — generated\nfn generated() {}\n",
+        )
+        .expect("write generated");
         commit_all(dir.path(), "setup");
         // The ignored file is created after the commit, so it can only be
         // listed as an untracked entry that git's ignore rules must exclude.
@@ -1238,7 +1305,10 @@ mod tests {
 
         let manifest = fs::read_to_string(&summary.manifest).expect("manifest");
         assert!(!manifest.contains("ignored.txt"), "gitignore is honoured");
-        assert!(!manifest.contains("generated.rs"), "generated files are skipped");
+        assert!(
+            !manifest.contains("generated.rs"),
+            "generated files are skipped"
+        );
         assert!(manifest.contains(".gitignore"));
     }
 
@@ -1248,18 +1318,20 @@ mod tests {
         repo_with(dir.path());
         fs::create_dir_all(dir.path().join("src")).expect("mkdir src");
         fs::create_dir_all(dir.path().join("tests")).expect("mkdir tests");
-        fs::write(dir.path().join("src/main.rs"), "// TODO: refactor\nfn main() {}\n").expect(
-            "write main"
-        );
+        fs::write(
+            dir.path().join("src/main.rs"),
+            "// TODO: refactor\nfn main() {}\n",
+        )
+        .expect("write main");
         fs::write(dir.path().join("README.md"), "# Demo\n").expect("write readme");
         fs::write(dir.path().join("tests/app_test.rs"), "fn check() {}\n").expect("write test");
         commit_all(dir.path(), "initial import");
 
         let summary = scan(dir.path());
 
-        let insights: serde_json::Value = serde_json
-            ::from_str(&fs::read_to_string(&summary.insights).expect("insights"))
-            .expect("parse insights");
+        let insights: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&summary.insights).expect("insights"))
+                .expect("parse insights");
         assert_eq!(insights["files"], 3);
         assert_eq!(insights["test_files"], 1);
         assert_eq!(insights["markers"][0]["marker"], "TODO");
@@ -1300,25 +1372,34 @@ mod tests {
         let summary = scan(dir.path());
         let insights = fs::read_to_string(&summary.insights).expect("insights");
         assert_eq!(summary.accepted_files, 1);
-        assert!(!insights.contains(".env"), "sensitive paths never reach the insights");
+        assert!(
+            !insights.contains(".env"),
+            "sensitive paths never reach the insights"
+        );
         assert!(!summary.insights_markdown.contains(".env"));
     }
 
     #[tokio::test]
     async fn save_insights_creates_and_updates_one_memory() {
         let dir = tempfile::tempdir().expect("tempdir");
-        save_insights(dir.path(), "demo", "# Digest\n").await.expect("save");
+        save_insights(dir.path(), "demo", "# Digest\n")
+            .await
+            .expect("save");
 
         let scope_dir = dir.path().join("projects/demo");
         let path = scope_dir.join(format!("{INSIGHTS_MEMORY_NAME}.md"));
         assert!(path.exists(), "the memory file is written");
         let body = fs::read_to_string(&path).expect("read memory");
         assert!(body.contains("# Digest"));
-        assert!(body.contains("codebase-insights"), "saved as a tagged memory");
+        assert!(
+            body.contains("codebase-insights"),
+            "saved as a tagged memory"
+        );
 
-        save_insights(dir.path(), "demo", "# Digest v2\n").await.expect("update");
-        let entries: Vec<_> = fs
-            ::read_dir(&scope_dir)
+        save_insights(dir.path(), "demo", "# Digest v2\n")
+            .await
+            .expect("update");
+        let entries: Vec<_> = fs::read_dir(&scope_dir)
             .expect("scope dir")
             .filter_map(Result::ok)
             .collect();
@@ -1328,8 +1409,7 @@ mod tests {
         let git = git2::Repository::open(dir.path()).expect("git memory repo");
         let head = git.head().expect("head").peel_to_commit().expect("commit");
         assert!(
-            head
-                .tree()
+            head.tree()
                 .expect("tree")
                 .get_path(Path::new("projects/demo/codebase-insights.md"))
                 .is_ok(),
@@ -1346,17 +1426,16 @@ mod tests {
 
     #[test]
     fn rules_flag_credentials_and_accept_clean_source() {
-        assert!(
-            rules()
-                .iter()
-                .any(|(rule, _)| *rule == "provider_token")
-        );
+        assert!(rules().iter().any(|(rule, _)| *rule == "provider_token"));
         assert!(!findings_in("key = \"ghp_0123456789012345678901234567890123\"").is_empty());
         assert!(
             findings_in("postgres://user:password@example.invalid/db")
                 .iter()
                 .any(|(rule, _)| *rule == "credential_url")
         );
-        assert!(findings_in("fn clean() {}\n").is_empty(), "ordinary source has no findings");
+        assert!(
+            findings_in("fn clean() {}\n").is_empty(),
+            "ordinary source has no findings"
+        );
     }
 }
