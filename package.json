@@ -28,7 +28,7 @@
     "test": "node --test test/extension.test.js",
     "pkginstall": "code --install-extension pali-memory-*.vsix",
     "pkguninstall": "code --uninstall-extension cderivan.pali-memory",
-    "reinstall": "npm run uninstall & npm run install",
+    "reinstall": "npm run pkguninstall & npm run pkginstall",
     "test:e2e": "vscode-test",
     "test:e2e:ui": "node scripts/e2e-ui-fixtures.mjs && node scripts/run-e2e-ui.mjs",
     "test:coverage": "node  --experimental-test-coverage --test test/extension.test.js",
@@ -36,6 +36,9 @@
     "clean": "rm -rf out node_modules target pali-memory-*.vsix tsconfig.tsbuildinfo",
     "vscode:prepublish": "npm run build && npm run icon",
     "watch": "tsc -p tsconfig.json --watch"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
@@ -79,6 +82,10 @@
         "title": "Pali: Scan Workspace"
       },
       {
+        "command": "pali.scanRepositories",
+        "title": "Pali: Scan Repositories"
+      },
+      {
         "command": "pali.index",
         "title": "Pali: Index Workspace"
       }
@@ -114,6 +121,21 @@
           "default": "",
           "description": "Memory scope for hooks. Empty uses the workspace folder's git repository name.",
           "type": "string"
+        },
+        "pali.scanBlame": {
+          "default": false,
+          "description": "Record per-line commit IDs from git blame in the scan manifest. Only commit IDs and line numbers are written, never author names, emails, or source lines.",
+          "type": "boolean"
+        },
+        "pali.scanMaxFileBytes": {
+          "default": 2097152,
+          "description": "Maximum size in bytes of a file included by Pali: Scan Repositories.",
+          "type": "number"
+        },
+        "pali.scanSaveMemories": {
+          "default": true,
+          "description": "Save the codebase insight digest as the codebase-insights memory in the memory repository. Uses pali.repoPath and pali.scope.",
+          "type": "boolean"
         },
         "pali.logLevel": {
           "default": "info",

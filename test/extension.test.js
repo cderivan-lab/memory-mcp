@@ -203,8 +203,57 @@ test("index hands the embedding model to the CLI", () => {
   assert.equal(configured.env.PALI_MODEL_DIR, "/custom/models");
 });
 
-test("both bootstrap subcommands carry the configured log level", () => {
-  for (const kind of ["scan", "index"]) {
+test("scan-repos carries blame, size, and memory settings", () => {
+  const defaults = workspaceBootstrapCommand(
+    "scan-repos",
+    { ...settings, scanSaveMemories: true, repoPath: "", scope: "" },
+    "/work/repo",
+  );
+  assert.deepEqual(defaults.args, [
+    "scan-repos",
+    "--workspace",
+    "/work/repo",
+    "--save-memories",
+  ]);
+  assert.equal(defaults.env.PALI_MODEL_DIR, undefined, "scanning never loads the model");
+
+  const configured = workspaceBootstrapCommand(
+    "scan-repos",
+    {
+      ...settings,
+      scanSaveMemories: true,
+      scanBlame: true,
+      scanMaxFileBytes: 1048576,
+      repoPath: "/memories",
+      scope: "my-repo",
+    },
+    "/work/repo",
+  );
+  assert.deepEqual(configured.args, [
+    "scan-repos",
+    "--workspace",
+    "/work/repo",
+    "--blame",
+    "--max-file-bytes",
+    "1048576",
+    "--save-memories",
+    "--repo-path",
+    "/memories",
+    "--scope",
+    "my-repo",
+  ]);
+
+  // With saving off, the memory-repository flags stay out entirely.
+  const artifactsOnly = workspaceBootstrapCommand(
+    "scan-repos",
+    { ...settings, scanSaveMemories: false, repoPath: "/memories", scope: "my-repo" },
+    "/work/repo",
+  );
+  assert.deepEqual(artifactsOnly.args, ["scan-repos", "--workspace", "/work/repo"]);
+});
+
+test("every bootstrap subcommand carries the configured log level", () => {
+  for (const kind of ["scan", "index", "scan-repos"]) {
     const invocation = workspaceBootstrapCommand(
       kind,
       { ...settings, logLevel: "debug" },
@@ -228,6 +277,19 @@ test("bootstrap summaries report the artifacts the run produced", () => {
       JSON.stringify({ files: 12, chunks: 40, index: "/w/.pali/index" }),
     ),
     "Pali: indexed 40 chunks from 12 files. Index: /w/.pali/index",
+  );
+
+  assert.equal(
+    workspaceBootstrapSummary(
+      "scan-repos",
+      JSON.stringify({
+        repositories: 1,
+        accepted_files: 12,
+        findings: 3,
+        insights: "/w/.pali/insights.json",
+      }),
+    ),
+    "Pali: scanned 12 files (3 findings). Insights: /w/.pali/insights.json",
   );
 
   // A binary that prints something other than JSON must not hide its output.
@@ -413,6 +475,59 @@ test("a missing binary is offered for download even when update checks are off",
     assert.equal(result.modelDir, null, "no model prompt without a startable server");
   } finally {
     await rm(storage, { recursive: true, force: true });
+  }
+});
+
+test("a usable pali.modelPath suppresses the model download offer", async () => {
+  // Regression: activation only looked in extension storage, so a user who
+  // provisioned the model through `pali.modelPath` was asked to download it
+  // again on every activation.
+  const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const storage = join(tmpdir(), `pali-test-configured-storage-${suffix}`);
+  const configured = join(tmpdir(), `pali-test-configured-model-${suffix}`);
+  await mkdir(configured, { recursive: true });
+  for (const name of MODEL_FILES) {
+    await writeFile(join(configured, name), "{}\n", "utf8");
+  }
+
+  const prompts = [];
+  const ui = {
+    paliPath: process.execPath,
+    storagePath: storage,
+    extensionPath: join(tmpdir(), `pali-test-ext-${suffix}`),
+    modelPath: configured,
+    error: (message) => assert.fail(`unexpected error: ${message}`),
+    info: () => {},
+    command: () => {},
+    choose: async (prompt) => {
+      prompts.push(prompt);
+      return "Later";
+    },
+    slow: (_, promise) => promise,
+    progress: (_, __, body) => body(() => {}),
+    localize: (message) => message,
+    shouldReuse: async () => undefined,
+    promptReload: async () => {},
+    showHelp: async () => {},
+    promptUpdate: async () => {},
+    promptInstall: async () => {},
+  };
+
+  try {
+    const result = await prepare(ui, false);
+    assert.equal(result.source, "configured");
+    assert.equal(result.modelDir, configured, "the configured model is used");
+    assert.equal(prompts.length, 0, "no download offer for a usable configured model");
+
+    // An unusable path must not suppress the offer: the server cannot start
+    // on it, and the extension reports that problem separately.
+    ui.modelPath = join(configured, "missing");
+    const fallback = await prepare(ui, false);
+    assert.equal(fallback.modelDir, null);
+    assert.equal(prompts.length, 1, "the offer returns when the configured path is unusable");
+  } finally {
+    await rm(storage, { recursive: true, force: true });
+    await rm(configured, { recursive: true, force: true });
   }
 });
 

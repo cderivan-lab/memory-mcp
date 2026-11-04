@@ -7,17 +7,14 @@
 //! are derived data: deleting them and running the commands again rebuilds
 //! the same result.
 
-use std::{
-    collections::HashSet,
-    path::{Path, PathBuf},
-};
+use std::{ collections::HashSet, path::{ Path, PathBuf } };
 
 use serde::Serialize;
 
 use crate::{
     embedding::EmbeddingBackend,
     error::MemoryError,
-    index::{UsearchStore, VectorStore},
+    index::{ UsearchStore, VectorStore },
     types::Scope,
 };
 
@@ -202,7 +199,7 @@ pub struct DatasetSummary {
 
 /// A text file included in a scan.
 #[derive(Debug, Serialize)]
-struct ScannedFile {
+pub(crate) struct ScannedFile {
     /// Workspace-relative path, `/`-separated.
     path: String,
     /// Coarse language label derived from the extension.
@@ -218,7 +215,7 @@ struct ScannedFile {
 /// A potential secret, located by path and line. The matched value is never
 /// stored.
 #[derive(Debug, Serialize)]
-struct Finding {
+pub(crate) struct Finding {
     path: String,
     line: usize,
     rule: &'static str,
@@ -226,7 +223,7 @@ struct Finding {
 
 /// Full scan inventory written to the report file.
 #[derive(Debug, Serialize)]
-struct Report {
+pub(crate) struct Report {
     root: String,
     files: Vec<ScannedFile>,
     skipped: usize,
@@ -246,43 +243,49 @@ pub fn scan(options: &ScanOptions) -> Result<ScanSummary, MemoryError> {
     let artifacts = options.artifacts_dir();
     std::fs::create_dir_all(&artifacts)?;
     let report_path = artifacts.join("scan.json");
-    let json = serde_json::to_vec_pretty(&report)
+    let json = serde_json
+        ::to_vec_pretty(&report)
         .map_err(|e| MemoryError::Internal(format!("serialise scan report: {e}")))?;
     crate::fs_util::atomic_write(&report_path, &json)?;
 
     Ok(ScanSummary {
         files: report.files.len(),
-        bytes: report.files.iter().map(|f| f.bytes).sum(),
+        bytes: report.files
+            .iter()
+            .map(|f| f.bytes)
+            .sum(),
         skipped: report.skipped,
-        sensitive: report.files.iter().filter(|f| f.sensitive).count(),
+        sensitive: report.files
+            .iter()
+            .filter(|f| f.sensitive)
+            .count(),
         findings: report.findings.len(),
         report: report_path.display().to_string(),
     })
 }
 
-fn scan_workspace(options: &ScanOptions) -> Result<Report, MemoryError> {
+/// Scan a workspace and return its inventory without writing any artifact.
+///
+/// This is the shared entry point: [`scan`], [`index`], [`dataset`], and the
+/// repository scanner all consume it, so the filesystem walk, the binary and
+/// UTF-8 checks, and the credential rules live in exactly one place.
+pub fn scan_workspace(options: &ScanOptions) -> Result<Report, MemoryError> {
     let _span = tracing::info_span!("workspace.scan", root = %options.root.display()).entered();
 
     let mut files = Vec::new();
     let mut findings = Vec::new();
     let mut skipped = 0usize;
-    walk(
-        &options.root,
-        &options.root,
-        options,
-        &mut files,
-        &mut findings,
-        &mut skipped,
-    )?;
+    walk(&options.root, &options.root, options, &mut files, &mut findings, &mut skipped)?;
 
     files.sort_by(|a, b| a.path.cmp(&b.path));
     findings.sort_by(|a, b| a.path.cmp(&b.path).then(a.line.cmp(&b.line)));
 
-    if let Some(limit) = options.limit
-        && files.len() > limit
-    {
+    if let Some(limit) = options.limit && files.len() > limit {
         files.truncate(limit);
-        let kept: HashSet<&str> = files.iter().map(|f| f.path.as_str()).collect();
+        let kept: HashSet<&str> = files
+            .iter()
+            .map(|f| f.path.as_str())
+            .collect();
         findings.retain(|f| kept.contains(f.path.as_str()));
     }
 
@@ -294,13 +297,23 @@ fn scan_workspace(options: &ScanOptions) -> Result<Report, MemoryError> {
     })
 }
 
-fn walk(
+/// Scan a workspace and return only the accepted file inventory.
+///
+/// This is the shared entry point for [`scan`], [`index`], [`dataset`], and
+/// the repository scanner. It performs the filesystem walk, binary and UTF-8
+/// checks, and credential rules in exactly one place; callers that only need
+/// the file list call this instead of duplicating the traversal.
+pub fn scan_files(options: &ScanOptions) -> Result<Vec<ScannedFile>, MemoryError> {
+    Ok(scan_workspace(options)?.files)
+}
+
+pub(crate) fn walk(
     root: &Path,
     dir: &Path,
     options: &ScanOptions,
     files: &mut Vec<ScannedFile>,
     findings: &mut Vec<Finding>,
-    skipped: &mut usize,
+    skipped: &mut usize
 ) -> Result<(), MemoryError> {
     let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
@@ -309,7 +322,9 @@ fn walk(
             *skipped += 1;
             return Ok(());
         }
-        Err(e) => return Err(e.into()),
+        Err(e) => {
+            return Err(e.into());
+        }
     };
 
     let mut entries: Vec<_> = entries.filter_map(Result::ok).collect();
@@ -414,18 +429,19 @@ fn walk(
 }
 
 /// A file is binary when a NUL byte appears in its leading bytes.
-fn is_binary(bytes: &[u8]) -> bool {
-    bytes.iter().take(BINARY_SNIFF_BYTES).any(|byte| *byte == 0)
+pub(crate) fn is_binary(bytes: &[u8]) -> bool {
+    bytes
+        .iter()
+        .take(BINARY_SNIFF_BYTES)
+        .any(|byte| *byte == 0)
 }
 
 /// Detect high-signal credential formats by shape, without validating them.
-fn secret_rule(line: &str) -> Option<&'static str> {
+pub(crate) fn secret_rule(line: &str) -> Option<&'static str> {
     if line.contains("PRIVATE KEY-----") && line.contains("BEGIN") {
         return Some("private-key");
     }
-    if has_token(line, "AKIA", 16, |c| {
-        c.is_ascii_uppercase() || c.is_ascii_digit()
-    }) {
+    if has_token(line, "AKIA", 16, |c| { c.is_ascii_uppercase() || c.is_ascii_digit() }) {
         return Some("aws-access-key");
     }
     for prefix in ["ghp_", "gho_", "ghu_", "ghs_", "ghr_"] {
@@ -434,7 +450,7 @@ fn secret_rule(line: &str) -> Option<&'static str> {
         }
     }
     for prefix in ["xoxb-", "xoxp-", "xoxa-", "xoxr-", "xoxs-"] {
-        if has_token(line, prefix, 10, |c| c.is_ascii_alphanumeric() || c == '-') {
+        if has_token(line, prefix, 10, |c| (c.is_ascii_alphanumeric() || c == '-')) {
             return Some("slack-token");
         }
     }
@@ -447,7 +463,12 @@ fn has_token(line: &str, prefix: &str, min: usize, allowed: fn(char) -> bool) ->
     let mut rest = line;
     while let Some(index) = rest.find(prefix) {
         let after = &rest[index + prefix.len()..];
-        if after.chars().take_while(|c| allowed(*c)).count() >= min {
+        if
+            after
+                .chars()
+                .take_while(|c| allowed(*c))
+                .count() >= min
+        {
             return true;
         }
         rest = after;
@@ -456,7 +477,7 @@ fn has_token(line: &str, prefix: &str, min: usize, allowed: fn(char) -> bool) ->
 }
 
 /// Files whose contents must never reach an index or dataset.
-fn is_sensitive(path: &str) -> bool {
+pub(crate) fn is_sensitive(path: &str) -> bool {
     let file_name = path.rsplit('/').next().unwrap_or(path);
     let lower = file_name.to_ascii_lowercase();
     let extension = lower.rsplit_once('.').map_or("", |(_, ext)| ext);
@@ -464,30 +485,27 @@ fn is_sensitive(path: &str) -> bool {
     if lower == ".env" {
         return true;
     }
-    if lower.starts_with(".env.")
-        && !matches!(
-            lower.as_str(),
-            ".env.example" | ".env.sample" | ".env.template" | ".env.dist"
-        )
+    if
+        lower.starts_with(".env.") &&
+        !matches!(lower.as_str(), ".env.example" | ".env.sample" | ".env.template" | ".env.dist")
     {
         return true;
     }
 
-    matches!(
-        extension,
-        "pem" | "key" | "p12" | "pfx" | "jks" | "keystore"
-    ) || matches!(
-        lower.as_str(),
-        ".netrc" | ".npmrc" | ".pypirc" | "credentials" | "credentials.json"
-    ) || lower.starts_with("id_rsa")
-        || lower.starts_with("id_ed25519")
-        || lower.starts_with("id_dsa")
-        || lower.contains("credential")
-        || lower.contains("secret")
+    matches!(extension, "pem" | "key" | "p12" | "pfx" | "jks" | "keystore") ||
+        matches!(
+            lower.as_str(),
+            ".netrc" | ".npmrc" | ".pypirc" | "credentials" | "credentials.json"
+        ) ||
+        lower.starts_with("id_rsa") ||
+        lower.starts_with("id_ed25519") ||
+        lower.starts_with("id_dsa") ||
+        lower.contains("credential") ||
+        lower.contains("secret")
 }
 
 /// Coarse language label from the file extension.
-fn language(path: &str) -> &'static str {
+pub(crate) fn language(path: &str) -> &'static str {
     let Some((_, extension)) = path.rsplit_once('.') else {
         return "text";
     };
@@ -559,9 +577,11 @@ struct ChunkRecord {
 /// should not fail because a build removed a generated file.
 fn chunk_workspace(
     report: &Report,
-    options: &ScanOptions,
+    options: &ScanOptions
 ) -> Result<(Vec<ChunkRecord>, usize), MemoryError> {
-    let _span = tracing::info_span!("workspace.chunk", files = report.files.len()).entered();
+    let _span = ::info_span("workspace.chunk", {
+        files = report.files.len();
+    }).entered();
 
     let mut chunks = Vec::new();
     let mut sensitive_skipped = 0usize;
@@ -647,9 +667,9 @@ fn distinct_files(chunks: &[ChunkRecord]) -> usize {
 /// `scripts/fetch-model.sh`); a missing model fails before any file is walked.
 pub async fn index(
     options: &ScanOptions,
-    embedding: &dyn EmbeddingBackend,
+    embedding: &dyn EmbeddingBackend
 ) -> Result<IndexSummary, MemoryError> {
-    let _span = tracing::info_span!("workspace.index").entered();
+    let _span = tracing::info_span("workspace.index").entered();
 
     let report = scan_workspace(options)?;
     let (chunks, sensitive_skipped) = chunk_workspace(&report, options)?;
@@ -658,21 +678,32 @@ pub async fn index(
     let store = UsearchStore::new(dimensions)?;
 
     for batch in chunks.chunks(EMBED_BATCH_SIZE) {
-        let texts: Vec<String> = batch.iter().map(|chunk| chunk.text.clone()).collect();
+        let texts: Vec<String> = batch
+            .iter()
+            .map(|chunk| chunk.text.clone())
+            .collect();
         let vectors = embedding.embed(&texts).await?;
         if vectors.len() != batch.len() {
-            return Err(MemoryError::Embedding(format!(
-                "embedding returned {} vectors for {} chunks",
-                vectors.len(),
-                batch.len()
-            )));
+            return Err(
+                MemoryError::Embedding(
+                    format!(
+                        "embedding returned {} vectors for {} chunks",
+                        vectors.len(),
+                        batch.len()
+                    )
+                )
+            );
         }
         for (chunk, vector) in batch.iter().zip(vectors) {
             if vector.len() != dimensions {
-                return Err(MemoryError::Embedding(format!(
-                    "embedding returned {} dimensions, expected {dimensions}",
-                    vector.len()
-                )));
+                return Err(
+                    MemoryError::Embedding(
+                        format!(
+                            "embedding returned {} dimensions, expected {dimensions}",
+                            vector.len()
+                        )
+                    )
+                );
             }
             store.add(&Scope::Root, &vector, format!("workspace/{}", chunk.id))?;
         }
@@ -701,9 +732,9 @@ pub async fn index(
 /// against the workspace root. Sensitive files never contribute records.
 pub fn dataset(
     options: &ScanOptions,
-    output: Option<&Path>,
+    output: Option<&Path>
 ) -> Result<DatasetSummary, MemoryError> {
-    let _span = tracing::info_span!("workspace.dataset").entered();
+    let _span = tracing::info_span("workspace.dataset").entered();
 
     let report = scan_workspace(options)?;
     let (chunks, sensitive_skipped) = chunk_workspace(&report, options)?;
@@ -730,8 +761,9 @@ fn write_jsonl<T: Serialize>(path: &Path, records: &[T]) -> Result<(), MemoryErr
     let mut body = String::new();
     for record in records {
         body.push_str(
-            &serde_json::to_string(record)
-                .map_err(|e| MemoryError::Internal(format!("serialise record: {e}")))?,
+            &serde_json
+                ::to_string(record)
+                .map_err(|e| MemoryError::Internal(format!("serialise record: {e}")))?
         );
         body.push('\n');
     }
@@ -753,7 +785,12 @@ mod tests {
     #[async_trait::async_trait]
     impl EmbeddingBackend for FixedEmbedding {
         async fn embed(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, MemoryError> {
-            Ok(texts.iter().map(|_| vec![1.0, 0.0, 0.0]).collect())
+            Ok(
+                texts
+                    .iter()
+                    .map(|_| vec![1.0, 0.0, 0.0])
+                    .collect()
+            )
         }
 
         fn dimensions(&self) -> usize {
@@ -772,10 +809,7 @@ mod tests {
         let options = ScanOptions::new(dir.path()).expect("options");
         let summary = scan(&options).expect("scan");
 
-        assert_eq!(
-            summary.files, 2,
-            "source file and sensitive file are listed"
-        );
+        assert_eq!(summary.files, 2, "source file and sensitive file are listed");
         assert_eq!(summary.sensitive, 1);
         assert_eq!(summary.findings, 1, "the AWS-shaped key is reported");
 
@@ -786,10 +820,7 @@ mod tests {
             !report.contains("AKIAABCDEFGHIJKLMNOP"),
             "the report must locate a finding without storing the value"
         );
-        assert!(
-            !report.contains("node_modules"),
-            "dependency directories are not scanned"
-        );
+        assert!(!report.contains("node_modules"), "dependency directories are not scanned");
     }
 
     #[test]
@@ -803,9 +834,9 @@ mod tests {
         let summary = scan(&options).expect("scan");
         assert_eq!(summary.files, 2);
 
-        let report: serde_json::Value =
-            serde_json::from_str(&fs::read_to_string(summary.report).expect("read report"))
-                .expect("parse report");
+        let report: serde_json::Value = serde_json
+            ::from_str(&fs::read_to_string(summary.report).expect("read report"))
+            .expect("parse report");
         let paths: Vec<&str> = report["files"]
             .as_array()
             .expect("files array")
@@ -857,10 +888,7 @@ mod tests {
         assert_eq!(summary.sensitive_skipped, 1);
 
         let body = fs::read_to_string(&output).expect("read dataset");
-        assert!(
-            !body.contains("supersecret"),
-            "sensitive contents are withheld"
-        );
+        assert!(!body.contains("supersecret"), "sensitive contents are withheld");
         let record: serde_json::Value = serde_json::from_str(body.trim()).expect("parse record");
         assert_eq!(record["path"], "docs/notes.md");
         assert_eq!(record["language"], "markdown");
@@ -884,8 +912,9 @@ mod tests {
         assert!(Path::new(&summary.index).join("all/index.usearch").exists());
         assert!(Path::new(&summary.index).join("chunks.jsonl").exists());
 
-        let store =
-            UsearchStore::load(Path::new(&summary.index), 3).expect("reload persisted index");
+        let store = UsearchStore::load(Path::new(&summary.index), 3).expect(
+            "reload persisted index"
+        );
         assert!(
             store.find_by_name("workspace/main.rs:1-1").is_some(),
             "the chunk is addressable in the persisted index"

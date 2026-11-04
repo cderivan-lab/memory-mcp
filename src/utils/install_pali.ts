@@ -700,6 +700,12 @@ export interface UI {
   ): Promise<T>;
   localize(message: string, ...args: Array<string | number | boolean>): string;
   /**
+   * Configured `pali.modelPath`, when the user set one. A usable directory
+   * suppresses the model download offer: the server starts on it, so asking
+   * to download a model would be wrong.
+   */
+  modelPath?: string;
+  /**
    * Called after an install finishes, so the host can re-resolve the server
    * inputs and restart it: an install is the moment a server that had nothing
    * to start with becomes startable, without waiting for the next activation.
@@ -728,7 +734,20 @@ export interface PrepareResult {
  * model is not installed yet. Choosing "Later" (or dismissing the prompt)
  * leaves the model uninstalled for this session.
  */
+/**
+ * The configured `pali.modelPath` when it holds every model file, else null.
+ * An unusable path must not suppress the download offer: the server cannot
+ * start on it, and the extension reports that problem separately.
+ */
+async function usableConfiguredModel(ui: UI): Promise<string | null> {
+  const configured = ui.modelPath?.trim();
+  if (!configured) return null;
+  return (await modelPathProblem(configured)) === undefined ? configured : null;
+}
+
 async function provisionModel(ui: UI, offer: boolean): Promise<string | null> {
+  const configured = await usableConfiguredModel(ui);
+  if (configured) return configured;
   const installed = await resolveModelDir(ui.storagePath);
   if (installed || !offer) return installed;
 
@@ -796,7 +815,7 @@ export async function prepare(ui: UI, autoCheck: boolean): Promise<PrepareResult
   // and its update prompts do not apply. The model is still needed, and so is
   // it when the binary was found on PATH or in the cache.
   const modelDir = modelOffered
-    ? await resolveModelDir(ui.storagePath)
+    ? ((await usableConfiguredModel(ui)) ?? (await resolveModelDir(ui.storagePath)))
     : await provisionModel(ui, true);
 
   if (resolved.source === "bundled") {

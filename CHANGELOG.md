@@ -29,6 +29,20 @@
   Windows) instead of a `.github/hooks/pali.json` copy in every workspace. One
   install covers every project, and `pali.scope` still separates memories per
   project. Existing per-workspace copies are left untouched.
+- **`Pali: Scan Repositories` command and scanner settings.** The command runs
+  the CLI's `scan-repos` against the first workspace folder and writes
+  `.pali/security-scan.json`, `.pali/scan-manifest.jsonl`, and
+  `.pali/insights.json`. `pali.scanSaveMemories` (default `true`) commits the
+  insight digest as the `codebase-insights` memory through `pali.repoPath` and
+  `pali.scope`; `pali.scanBlame` (default `false`) adds per-line commit IDs;
+  `pali.scanMaxFileBytes` (default 2 MiB) bounds included files.
+- **A usable `pali.modelPath` no longer triggers the model download prompt.**
+  Activation inspected only the extension's storage for the embedding model, so
+  a user who provisioned the model elsewhere was asked to download it again on
+  every activation. The installer now receives the configured path and skips
+  both the activation offer and the post-install offer when the directory holds
+  every required file; an unusable path still offers the download, because the
+  server cannot start on it.
 - **An unusable `pali.modelPath` is reported instead of failing the server.**
   Activation checks the directory for `config.json`, `tokenizer.json`, and
   `model.safetensors`; when any are missing (or the path does not exist or is

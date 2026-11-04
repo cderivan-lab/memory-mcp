@@ -106,6 +106,9 @@ async function settings(
     modelDir: modelDir ?? undefined,
     modelPath: await usableModelPath(String(config.get('modelPath') || '').trim()),
     logLevel: normalizeLogLevel(config.get('logLevel')),
+    scanBlame: Boolean(config.get('scanBlame')),
+    scanMaxFileBytes: Number(config.get('scanMaxFileBytes')) || undefined,
+    scanSaveMemories: config.get<boolean>('scanSaveMemories') ?? true,
   };
 }
 
@@ -246,7 +249,12 @@ async function bootstrapWorkspace(
   context: vscode.ExtensionContext,
   output: vscode.OutputChannel,
 ): Promise<void> {
-  const label = kind === 'scan' ? 'Scan workspace' : 'Index workspace';
+  const labels: Record<WorkspaceBootstrapKind, string> = {
+    scan: 'Scan workspace',
+    index: 'Index workspace',
+    'scan-repos': 'Scan repositories',
+  };
+  const label = labels[kind];
   const folder = vscode.workspace.workspaceFolders?.[0];
   if (!folder) {
     void vscode.window.showErrorMessage(
@@ -365,6 +373,8 @@ function activate(context: vscode.ExtensionContext): void {
       bootstrapWorkspace('scan', context, output)),
     vscode.commands.registerCommand('pali.index', () =>
       bootstrapWorkspace('index', context, output)),
+    vscode.commands.registerCommand('pali.scanRepositories', () =>
+      bootstrapWorkspace('scan-repos', context, output)),
     vscode.lm?.registerMcpServerDefinitionProvider?.(MCP_PROVIDER_ID, {
       onDidChangeMcpServerDefinitions: serverChanged.event,
       provideMcpServerDefinitions: async (): Promise<vscode.McpServerDefinition[]> => {

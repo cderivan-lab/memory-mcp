@@ -29,6 +29,12 @@ export interface ExtensionSettings {
   // Log level for the extension, the MCP server, and the hooks (default
   // `info`). One knob drives the whole project's verbosity.
   logLevel?: LogLevel;
+  // Record git blame commit IDs and line numbers in the scan manifest.
+  scanBlame?: boolean;
+  // Maximum size of a file included by a repository scan.
+  scanMaxFileBytes?: number;
+  // Save the insight digest as a memory in the memory repository.
+  scanSaveMemories?: boolean;
 }
 
 /** One hook command carrying the settings the scripts read from the environment. */
@@ -139,7 +145,7 @@ export function mcpServerDefinition(
 }
 
 /** Workspace bootstrap subcommands that run against a folder on disk. */
-export type WorkspaceBootstrapKind = "scan" | "index";
+export type WorkspaceBootstrapKind = "scan" | "index" | "scan-repos";
 
 /** A resolved CLI invocation for one workspace bootstrap run. */
 export interface WorkspaceBootstrapCommand {
@@ -151,10 +157,12 @@ export interface WorkspaceBootstrapCommand {
 /**
  * Build the `pali scan` / `pali index` invocation for a workspace folder.
  *
- * The CLI writes its artifacts under `<workspace>/.pali` by default, so the
- * folder is passed as-is and nothing is written into the memory repository.
- * `index` embeds every chunk, so it receives the same model directory the
- * server uses; `scan` only reads text files and never loads the model.
+ * The CLI writes its artifacts under `<workspace>/.pali` by default. `scan`
+ * and `scan-repos` only read text files and never load the model; `index`
+ * embeds every chunk, so it receives the same model directory the server
+ * uses. `scan-repos` alone can commit the insight digest into the memory
+ * repository (`--save-memories`), which is the only path here that writes
+ * outside the artifacts directory.
  */
 export function workspaceBootstrapCommand(
   kind: WorkspaceBootstrapKind,
@@ -166,15 +174,26 @@ export function workspaceBootstrapCommand(
     const modelDir = config.modelPath || config.modelDir;
     if (modelDir) env.PALI_MODEL_DIR = modelDir;
   }
-  // Both subcommands log through tracing, so the configured level applies the
+  // Every subcommand logs through tracing, so the configured level applies the
   // same way it does to the server and the hooks.
   if (config.logLevel) env.RUST_LOG = rustLogFilter(config.logLevel);
 
-  return {
-    command: config.binPath,
-    args: [kind, "--workspace", workspaceRoot],
-    env,
-  };
+  const args = [kind, "--workspace", workspaceRoot];
+  if (kind === "scan-repos") {
+    if (config.scanBlame) args.push("--blame");
+    if (config.scanMaxFileBytes) {
+      args.push("--max-file-bytes", String(config.scanMaxFileBytes));
+    }
+    if (config.scanSaveMemories) {
+      args.push("--save-memories");
+      // The CLI defaults to ~/.memory-mcp and the workspace directory name;
+      // only pass values the user actually configured.
+      if (config.repoPath) args.push("--repo-path", config.repoPath);
+      if (config.scope) args.push("--scope", config.scope);
+    }
+  }
+
+  return { command: config.binPath, args, env };
 }
 
 /**
@@ -194,6 +213,12 @@ export function workspaceBootstrapSummary(
     return text || `Pali: ${kind} finished without a summary`;
   }
   const count = (key: string): number => Number(summary[key] ?? 0);
+  if (kind === "scan-repos") {
+    return (
+      `Pali: scanned ${count("accepted_files")} files ` +
+      `(${count("findings")} findings). Insights: ${summary.insights}`
+    );
+  }
   if (kind === "scan") {
     return (
       `Pali: scanned ${count("files")} files ` +

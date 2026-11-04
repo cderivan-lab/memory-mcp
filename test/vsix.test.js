@@ -135,6 +135,7 @@ test(
         "pali.install",
         "pali.restart",
         "pali.scan",
+        "pali.scanRepositories",
         "pali.setToken",
         "pali.update",
       ],
