@@ -24,7 +24,7 @@ git2 = { version = "0.21.0", default-features = false, features = [
 # Read-only access (HEAD resolution, tree diffs, blob reads). The network and
 # merge features are deliberately not enabled: libgit2 still owns transport,
 # merge and push. See ADR-0053.
-gix = { version = "0.90", default-features = false, features = ["revision", "sha1"] }
+gix = { version = "0.90", default-features = false, features = ["revision", "sha1", "status"] }
 usearch = "2"
 
 # BM25 keyword search for hybrid retrieval (pure Rust, Lucene-inspired).

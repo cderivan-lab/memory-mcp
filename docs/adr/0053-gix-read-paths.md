@@ -53,7 +53,7 @@ checkout/reset, fetch, merge, push, and the credential callbacks. The pull path
 stays entirely on libgit2, including `capture_head_oid`, because it is part of
 a write transaction.
 
-Features are pinned to `default-features = false, features = ["revision", "sha1"]`.
+Features are pinned to `default-features = false, features = ["revision", "sha1", "status"]`.
 `sha1` is required: without a hash kind, `gix-hash`'s `Kind` enum has no
 variants and its `match` fails to compile. No transport, TLS, or credential
 features are enabled, so the TLS consolidation in
@@ -78,9 +78,10 @@ enum.
 - Out-of-tree object ids that are not valid hex become `Internal` rather than
   a git error, because the 20-byte representation is a crate contract that
   gix cannot validate directly.
-- The scanner's untracked-file enumeration still uses libgit2's status API. It
-  asks for the exact `WT_NEW` set with libgit2's ignore semantics, and the
-  read path there is not on a hot loop. Moving it is a separate change with
-  its own behaviour comparison.
+- The scanner's untracked-file enumeration also goes through gix status
+  (`UntrackedFiles::Files`), which is why the `status` feature is enabled. A
+  parity test builds a repository with tracked, untracked and ignored files and
+  asserts that gix and libgit2 report the same set, so the switch cannot drift
+  silently.
 - Revisit this split when `gix-merge` and push are shippable: at that point
   ADR-0002 can be superseded outright and libgit2 dropped.

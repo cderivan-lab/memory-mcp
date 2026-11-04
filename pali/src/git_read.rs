@@ -53,6 +53,32 @@ pub(crate) fn head_sha(root: &Path) -> Option<String> {
     repo.head_id().ok().map(|id| id.to_string())
 }
 
+/// Repository-relative paths of files that are untracked and not ignored.
+///
+/// This is the scanner's enumeration: git's own view of "new file", with
+/// `.gitignore` applied and untracked directories expanded to the files they
+/// contain. libgit2 answered this before; the parity test in the scanner pins
+/// both implementations to the same set so the two cannot drift apart.
+pub(crate) fn untracked_files(root: &Path) -> Result<Vec<String>, MemoryError> {
+    let repo = gix::open(root)?;
+    let platform = repo
+        .status(gix::progress::Discard)?
+        .untracked_files(gix::status::UntrackedFiles::Files);
+
+    let mut paths = Vec::new();
+    for item in platform.into_iter(None)? {
+        let item = item?;
+        if let gix::status::Item::IndexWorktree(
+            gix::status::index_worktree::Item::DirectoryContents { entry, .. },
+        ) = item
+            && entry.status == gix::dir::entry::Status::Untracked
+        {
+            paths.push(entry.rela_path.to_string());
+        }
+    }
+    Ok(paths)
+}
+
 /// Compare the trees of two commits and return the memory files that changed.
 ///
 /// `old_oid` may be `[0u8; 20]` for an unborn branch, in which case every file

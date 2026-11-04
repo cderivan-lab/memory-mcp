@@ -17,7 +17,7 @@
 //!
 //! Insights are deterministic: counts and paths derived from the accepted
 //! files, never model output. The digest is written to `insights.json` and can
-//! be saved as one memory with [`save_insights`].
+//! be saved as one memory with `save_insights`.
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -26,7 +26,6 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-use git2::StatusOptions;
 use regex::Regex;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -46,7 +45,7 @@ const COMMIT_MESSAGES: usize = 5;
 const GENERATED_SNIFF_CHARS: usize = 4_096;
 /// Default artifacts directory, relative to the workspace root.
 const DEFAULT_ARTIFACTS_DIR: &str = ".pali";
-/// Memory name used by [`save_insights`].
+/// Memory name used by `save_insights`.
 pub const INSIGHTS_MEMORY_NAME: &str = "codebase-insights";
 /// Entries retained per insight list, so one huge repository cannot make the
 /// digest unbounded.
@@ -424,7 +423,7 @@ fn scan_repository(
 ) -> Result<(), MemoryError> {
     let repo_path = options.root.as_path();
 
-    for relative in list_paths(repo)? {
+    for relative in list_paths(repo, repo_path)? {
         if relative.is_empty() {
             continue;
         }
@@ -586,7 +585,12 @@ fn commit_messages(repo: &git2::Repository) -> Vec<String> {
 }
 
 /// Tracked files plus untracked files that `.gitignore` does not exclude.
-fn list_paths(repo: &git2::Repository) -> Result<BTreeSet<String>, MemoryError> {
+///
+/// Tracked paths come from the index, which is the same source in both
+/// implementations. Untracked paths come from `gix` status, matching what
+/// `git status` reports; `gix_untracked_enumeration_matches_libgit2` pins that
+/// to libgit2's `WT_NEW` set.
+fn list_paths(repo: &git2::Repository, root: &Path) -> Result<BTreeSet<String>, MemoryError> {
     let mut paths = BTreeSet::new();
 
     for entry in repo.index()?.iter() {
@@ -595,18 +599,7 @@ fn list_paths(repo: &git2::Repository) -> Result<BTreeSet<String>, MemoryError> 
         }
     }
 
-    let mut statuses = StatusOptions::new();
-    statuses
-        .include_untracked(true)
-        .recurse_untracked_dirs(true)
-        .include_ignored(false);
-    for entry in repo.statuses(Some(&mut statuses))?.iter() {
-        if entry.status().contains(git2::Status::WT_NEW)
-            && let Ok(path) = entry.path()
-        {
-            paths.insert(path.to_string());
-        }
-    }
+    paths.extend(crate::git_read::untracked_files(root)?);
 
     Ok(paths)
 }
@@ -1436,6 +1429,48 @@ mod tests {
         assert!(
             findings_in("fn clean() {}\n").is_empty(),
             "ordinary source has no findings"
+        );
+    }
+    /// The gix enumeration must report exactly what libgit2's `WT_NEW` set
+    /// reported before the port: untracked files, ignored files excluded, and
+    /// untracked directories expanded to the files inside them.
+    #[test]
+    fn gix_untracked_enumeration_matches_libgit2() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let repo = repo_with(dir.path());
+        fs::write(dir.path().join(".gitignore"), "ignored.txt\n").expect("write gitignore");
+        fs::write(dir.path().join("tracked.txt"), "tracked\n").expect("write tracked");
+        commit_all(dir.path(), "tracked baseline");
+
+        // Created after the commit, so both can only see them as untracked.
+        fs::write(dir.path().join("untracked.txt"), "new\n").expect("write untracked");
+        fs::create_dir_all(dir.path().join("newdir")).expect("mkdir newdir");
+        fs::write(dir.path().join("newdir/nested.txt"), "nested\n").expect("write nested");
+        fs::write(dir.path().join("ignored.txt"), "ignored\n").expect("write ignored");
+
+        let mut options = git2::StatusOptions::new();
+        options
+            .include_untracked(true)
+            .recurse_untracked_dirs(true)
+            .include_ignored(false);
+        let libgit2: BTreeSet<String> = repo
+            .statuses(Some(&mut options))
+            .expect("statuses")
+            .iter()
+            .filter(|entry| entry.status().contains(git2::Status::WT_NEW))
+            .filter_map(|entry| entry.path().ok().map(str::to_string))
+            .collect();
+
+        let gix: BTreeSet<String> = crate::git_read::untracked_files(dir.path())
+            .expect("gix status")
+            .into_iter()
+            .collect();
+
+        assert_eq!(gix, libgit2, "gix status must match libgit2's WT_NEW set");
+        assert_eq!(
+            gix,
+            BTreeSet::from(["newdir/nested.txt".to_string(), "untracked.txt".to_string()]),
+            "ignored files stay out and untracked directories expand to their files"
         );
     }
 }
