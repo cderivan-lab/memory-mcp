@@ -38,6 +38,21 @@
 
 ### Added
 
+- **`pali scan-repos`: git-aware repository scanner.** It scans the workspace
+  directory's own git repository (nested repositories are not followed) and
+  enumerates tracked plus untracked-but-not-ignored files, then writes
+  `<artifacts>/security-scan.json`,
+  `<artifacts>/scan-manifest.jsonl`, and `<artifacts>/insights.json`. The
+  insights are deterministic counts and paths — language mix, top-level areas,
+  largest files, TODO/FIXME markers, test-file ratio, project files, and recent
+  commit subjects — never model output or file content. `--save-memories`
+  commits the same digest as one `codebase-insights` memory in the git-backed
+  pali memory repository (default `~/.memory-mcp`; `--scope` defaults to the
+  workspace directory name). The manifest records the repository, path,
+  language, HEAD commit, SHA-256 content hash, the last five commit subjects,
+  and — with `--blame` — per-line commit IDs. Credential-shaped paths and
+  contents are excluded whole-file rather than redacted, and findings record
+  only the rule, path, and line, never the matched value.
 - **Optional in-memory HTTPS git token.** `PALI_GIT_TOKEN` authenticates HTTPS
   remotes for the life of the process, for environments without a git
   credential helper (the VS Code extension supplies it from secret storage).

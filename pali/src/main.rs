@@ -43,6 +43,9 @@ enum Command {
     RecallStats(RecallStatsArgs),
     /// Bootstrap a workspace: scan text files and report potential secrets
     Scan(ScanArgs),
+    /// Bootstrap a workspace: scan its git repositories, then write the
+    /// security report and scan manifest
+    ScanRepos(ScanReposArgs),
     /// Bootstrap a workspace: embed scanned files into a local vector index
     Index(IndexArgs),
     /// Bootstrap a workspace: write scanned chunks as a JSONL dataset
@@ -108,6 +111,34 @@ struct RecallStatsArgs {
 struct ScanArgs {
     #[command(flatten)]
     workspace: WorkspaceArgs,
+}
+
+#[derive(Args)]
+struct ScanReposArgs {
+    #[command(flatten)]
+    workspace: WorkspaceArgs,
+
+    /// Record per-line commit IDs from git blame. Only commit IDs and line
+    /// numbers are written — never author names, emails, or source lines.
+    #[arg(long, default_value_t = false)]
+    blame: bool,
+
+    /// Maximum size in bytes of an included file.
+    #[arg(long, default_value_t = 2 * 1024 * 1024, value_parser = parse_nonzero_u64)]
+    max_file_bytes: u64,
+
+    /// Save the insight digest as one memory in a pali memory repository.
+    #[arg(long, default_value_t = false)]
+    save_memories: bool,
+
+    /// Memory repository for --save-memories. Created when it does not exist.
+    #[arg(long, default_value = "~/.memory-mcp")]
+    repo_path: String,
+
+    /// Memory scope for --save-memories. Defaults to the workspace directory
+    /// name.
+    #[arg(long)]
+    scope: Option<String>,
 }
 
 #[derive(Args)]
@@ -220,6 +251,9 @@ async fn main() -> anyhow::Result<()> {
         }
         Some(Command::Scan(args)) => {
             run_scan(args)?;
+        }
+        Some(Command::ScanRepos(args)) => {
+            run_scan_repos(args).await?;
         }
         Some(Command::Index(args)) => {
             run_index(args).await?;
@@ -597,6 +631,44 @@ fn workspace_options(args: &WorkspaceArgs) -> anyhow::Result<pali::workspace::Sc
 /// Write a scan inventory to `<artifacts>/scan.json` and print its summary.
 fn run_scan(args: ScanArgs) -> anyhow::Result<()> {
     let summary = pali::workspace::scan(&workspace_options(&args.workspace)?)?;
+    println!("{}", serde_json::to_string_pretty(&summary)?);
+    Ok(())
+}
+
+/// Scan the workspace's git repository and print the artifact summary.
+async fn run_scan_repos(args: ScanReposArgs) -> anyhow::Result<()> {
+    let mut options = pali::scanner::RepositoryScanOptions::new(args.workspace.workspace.clone())?
+        .with_max_file_bytes(args.max_file_bytes)
+        .with_blame(args.blame);
+    if let Some(limit) = args.workspace.limit {
+        options = options.with_limit(limit);
+    }
+    if let Some(artifacts) = &args.workspace.artifacts {
+        options = options.with_artifacts(artifacts);
+    }
+    let summary = pali::scanner::scan_repositories(&options)?;
+
+    if args.save_memories {
+        let repo_path = expand_path(&args.repo_path)?;
+        let repo_path = pali::fs_util::canonicalize_allow_missing(&repo_path)?;
+        let scope = args
+            .scope
+            .unwrap_or_else(|| pali::scanner::default_scope(options.root()));
+        pali::scanner::save_insights(&repo_path, &scope, &summary.insights_markdown)
+            .await
+            .with_context(|| {
+                format!(
+                    "failed to save codebase insights to {}",
+                    repo_path.display()
+                )
+            })?;
+        tracing::info!(
+            scope,
+            memory = pali::scanner::INSIGHTS_MEMORY_NAME,
+            "saved codebase insights"
+        );
+    }
+
     println!("{}", serde_json::to_string_pretty(&summary)?);
     Ok(())
 }

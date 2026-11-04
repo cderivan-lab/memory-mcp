@@ -24,6 +24,8 @@ pub mod recall_log;
 pub mod repo;
 /// Routes memory operations to scope-specific git repositories.
 pub mod repo_router;
+/// Repository scanner — git-aware inventory, security report, and manifest.
+pub mod scanner;
 /// Hybrid retrieval — semantic + BM25 lexical search merged via rank fusion.
 pub mod search;
 /// MCP server implementation — tool handlers for the memory protocol.

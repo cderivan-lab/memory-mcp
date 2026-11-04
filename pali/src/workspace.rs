@@ -202,7 +202,7 @@ pub struct DatasetSummary {
 
 /// A text file included in a scan.
 #[derive(Debug, Serialize)]
-struct ScannedFile {
+pub struct ScannedFile {
     /// Workspace-relative path, `/`-separated.
     path: String,
     /// Coarse language label derived from the extension.
@@ -218,7 +218,7 @@ struct ScannedFile {
 /// A potential secret, located by path and line. The matched value is never
 /// stored.
 #[derive(Debug, Serialize)]
-struct Finding {
+pub(crate) struct Finding {
     path: String,
     line: usize,
     rule: &'static str,
@@ -226,7 +226,7 @@ struct Finding {
 
 /// Full scan inventory written to the report file.
 #[derive(Debug, Serialize)]
-struct Report {
+pub struct Report {
     root: String,
     files: Vec<ScannedFile>,
     skipped: usize,
@@ -260,7 +260,12 @@ pub fn scan(options: &ScanOptions) -> Result<ScanSummary, MemoryError> {
     })
 }
 
-fn scan_workspace(options: &ScanOptions) -> Result<Report, MemoryError> {
+/// Scan a workspace and return its inventory without writing any artifact.
+///
+/// This is the shared entry point: [`scan`], [`index`], [`dataset`], and the
+/// repository scanner all consume it, so the filesystem walk, the binary and
+/// UTF-8 checks, and the credential rules live in exactly one place.
+pub fn scan_workspace(options: &ScanOptions) -> Result<Report, MemoryError> {
     let _span = tracing::info_span!("workspace.scan", root = %options.root.display()).entered();
 
     let mut files = Vec::new();
@@ -294,7 +299,17 @@ fn scan_workspace(options: &ScanOptions) -> Result<Report, MemoryError> {
     })
 }
 
-fn walk(
+/// Scan a workspace and return only the accepted file inventory.
+///
+/// This is the shared entry point for [`scan`], [`index`], [`dataset`], and
+/// the repository scanner. It performs the filesystem walk, binary and UTF-8
+/// checks, and credential rules in exactly one place; callers that only need
+/// the file list call this instead of duplicating the traversal.
+pub fn scan_files(options: &ScanOptions) -> Result<Vec<ScannedFile>, MemoryError> {
+    Ok(scan_workspace(options)?.files)
+}
+
+pub(crate) fn walk(
     root: &Path,
     dir: &Path,
     options: &ScanOptions,
@@ -309,7 +324,9 @@ fn walk(
             *skipped += 1;
             return Ok(());
         }
-        Err(e) => return Err(e.into()),
+        Err(e) => {
+            return Err(e.into());
+        }
     };
 
     let mut entries: Vec<_> = entries.filter_map(Result::ok).collect();
@@ -414,12 +431,12 @@ fn walk(
 }
 
 /// A file is binary when a NUL byte appears in its leading bytes.
-fn is_binary(bytes: &[u8]) -> bool {
+pub(crate) fn is_binary(bytes: &[u8]) -> bool {
     bytes.iter().take(BINARY_SNIFF_BYTES).any(|byte| *byte == 0)
 }
 
 /// Detect high-signal credential formats by shape, without validating them.
-fn secret_rule(line: &str) -> Option<&'static str> {
+pub(crate) fn secret_rule(line: &str) -> Option<&'static str> {
     if line.contains("PRIVATE KEY-----") && line.contains("BEGIN") {
         return Some("private-key");
     }
@@ -456,7 +473,7 @@ fn has_token(line: &str, prefix: &str, min: usize, allowed: fn(char) -> bool) ->
 }
 
 /// Files whose contents must never reach an index or dataset.
-fn is_sensitive(path: &str) -> bool {
+pub(crate) fn is_sensitive(path: &str) -> bool {
     let file_name = path.rsplit('/').next().unwrap_or(path);
     let lower = file_name.to_ascii_lowercase();
     let extension = lower.rsplit_once('.').map_or("", |(_, ext)| ext);
@@ -487,7 +504,7 @@ fn is_sensitive(path: &str) -> bool {
 }
 
 /// Coarse language label from the file extension.
-fn language(path: &str) -> &'static str {
+pub(crate) fn language(path: &str) -> &'static str {
     let Some((_, extension)) = path.rsplit_once('.') else {
         return "text";
     };
@@ -563,7 +580,7 @@ fn chunk_workspace(
 ) -> Result<(Vec<ChunkRecord>, usize), MemoryError> {
     let _span = tracing::info_span!("workspace.chunk", files = report.files.len()).entered();
 
-    let mut chunks = Vec::new();
+    let mut chunks: Vec<ChunkRecord> = Vec::new();
     let mut sensitive_skipped = 0usize;
 
     for file in &report.files {

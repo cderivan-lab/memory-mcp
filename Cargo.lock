@@ -2022,6 +2022,7 @@ dependencies = [
  "libz-sys",
  "openssl",
  "proptest",
+ "regex",
  "rmcp",
  "rusqlite",
  "serde",

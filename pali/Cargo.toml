@@ -33,6 +33,9 @@ toml = "1.1"
 # Deterministic FactId content digests for chunk-addressable retrieval
 # (ADR-0042). Already in the tree transitively; this makes it direct.
 sha2 = "0.11"
+# Credential-shape detection for the repository scanner. Every pattern is a
+# compile-time constant, so the regex set is compiled once per process.
+regex = "1"
 dirs = "7"
 arc-swap = "1"
 rusqlite = { version = "0.41", features = ["bundled"] }
