@@ -1,0 +1,155 @@
+{
+  "stack": {
+    "languages": [
+      {
+        "name": "JSON",
+        "fileCount": 13,
+        "lineCount": 44304,
+        "percentage": 44
+      },
+      {
+        "name": "Rust",
+        "fileCount": 42,
+        "lineCount": 29295,
+        "percentage": 29
+      },
+      {
+        "name": "Markdown",
+        "fileCount": 126,
+        "lineCount": 13281,
+        "percentage": 13
+      },
+      {
+        "name": "JavaScript",
+        "fileCount": 30,
+        "lineCount": 10651,
+        "percentage": 11
+      },
+      {
+        "name": "TypeScript",
+        "fileCount": 14,
+        "lineCount": 2037,
+        "percentage": 2
+      },
+      {
+        "name": "YAML",
+        "fileCount": 11,
+        "lineCount": 35,
+        "percentage": 0
+      }
+    ],
+    "frameworks": [],
+    "packageManager": "npm",
+    "buildTools": [
+      "TypeScript"
+    ]
+  },
+  "structure": {
+    "rootFiles": [
+      "AGENTS.md",
+      "Cargo.lock",
+      "Cargo.toml",
+      "CHANGELOG.md",
+      "CLAUDE.md",
+      "clippy.toml",
+      "deny.toml",
+      "DESIGN.md",
+      "LICENSE",
+      "package-lock.json",
+      "package.json",
+      "pali-memory-0.3.0.vsix",
+      "README.md",
+      "TODO.md",
+      "tsconfig.json",
+      "tsconfig.tsbuildinfo"
+    ],
+    "mainDirectories": [
+      {
+        "name": "target",
+        "purpose": "项目目录",
+        "fileCount": 2037,
+        "path": "target"
+      },
+      {
+        "name": "docs",
+        "purpose": "文档",
+        "fileCount": 82,
+        "path": "docs"
+      },
+      {
+        "name": "openspec",
+        "purpose": "项目目录",
+        "fileCount": 65,
+        "path": "openspec"
+      },
+      {
+        "name": "pali",
+        "purpose": "项目目录",
+        "fileCount": 45,
+        "path": "pali"
+      },
+      {
+        "name": "hooks",
+        "purpose": "React Hooks",
+        "fileCount": 15,
+        "path": "hooks"
+      },
+      {
+        "name": "out",
+        "purpose": "输出目录",
+        "fileCount": 15,
+        "path": "out"
+      },
+      {
+        "name": "src",
+        "purpose": "源代码",
+        "fileCount": 8,
+        "path": "src"
+      },
+      {
+        "name": "scripts",
+        "purpose": "脚本",
+        "fileCount": 6,
+        "path": "scripts"
+      },
+      {
+        "name": "models",
+        "purpose": "数据模型",
+        "fileCount": 4,
+        "path": "models"
+      },
+      {
+        "name": "test",
+        "purpose": "测试文件",
+        "fileCount": 4,
+        "path": "test"
+      }
+    ],
+    "entryPoints": []
+  },
+  "patterns": {
+    "architecture": "standard",
+    "codeStyle": [
+      "TypeScript"
+    ],
+    "conventions": [
+      "GitHub workflows",
+      "OpenSpec"
+    ]
+  },
+  "stats": {
+    "totalFiles": 2249,
+    "totalLines": 99603,
+    "byLanguage": {
+      "JSON": 44304,
+      "Rust": 29295,
+      "Markdown": 13281,
+      "JavaScript": 10651,
+      "TypeScript": 2037,
+      "YAML": 35
+    }
+  },
+  "analyzedAt": "2026-11-04T17:46:47.843Z",
+  "projectRoot": "D:\\repos\\AI\\memory-mcp/.",
+  "projectName": "."
+}

@@ -102,3 +102,4 @@ the extension output channel.
   workspace
 - **THEN** the command runs `pali index`, reports progress, and shows the
   model-provisioning failure without crashing the extension host
+  
