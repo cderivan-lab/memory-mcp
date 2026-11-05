@@ -114,8 +114,10 @@ built from the `pali.binPath`, `pali.repoPath`, `pali.remoteUrl`,
 `pali.branch`, and `pali.modelPath` settings, then starts it on demand. It
 also writes the user-level
 `~/.copilot/hooks/pali.json` once per machine, so Copilot recalls project
-memories at session start and captures a digest when the agent stops. VS Code may ask once to trust
-the server.
+memories at session start and captures a digest when the agent stops. It also
+copies `pali-memory.instructions.md` into `~/.copilot/instructions/`, so
+Copilot recalls at task start and stores durable facts with `note`. VS Code may
+ask once to trust the server.
 
 ## Store and retrieve a memory
 

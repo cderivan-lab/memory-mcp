@@ -2,15 +2,32 @@
 // uninstalls the extension. The hook file this extension writes points at
 // `hooks/copilot-hooks.mjs` inside the extension directory, so leaving it
 // behind makes every Copilot hook event fail with MODULE_NOT_FOUND once that
-// directory is gone. Remove that file — and only that file.
+// directory is gone. The skill and the instructions file are the other
+// artifacts that outlive the extension. Remove all three — and only what this
+// extension wrote: a foreign hook config, a hand-edited skill, or a
+// hand-edited instructions file survives.
 
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { INSTRUCTIONS_DIR, INSTRUCTIONS_FILE } from './utils/instructions';
 
 /** Directory holding the user-level hook config; tests redirect it. */
 function hooksDir(): string {
   return process.env.PALI_HOOKS_DIR || path.join(os.homedir(), '.copilot', 'hooks');
+}
+
+/** Directory holding user-level skills; tests redirect it. */
+function skillsDir(): string {
+  return process.env.PALI_SKILLS_DIR || path.join(os.homedir(), '.copilot', 'skills');
+}
+
+/** User-level Pali Memory instructions file; tests redirect it. */
+function instructionsPath(): string {
+  return (
+    process.env.PALI_INSTRUCTIONS_PATH ||
+    path.join(os.homedir(), ".copilot", INSTRUCTIONS_DIR, INSTRUCTIONS_FILE)
+  );
 }
 
 /**
@@ -65,11 +82,92 @@ export function removeHookConfig(dir: string = hooksDir()): boolean {
   }
 }
 
+/**
+ * Delete the instructions file this extension installed. It is only ours when
+ * it still matches the shipped copy: a hand edit is left alone, exactly like
+ * the installed skill.
+ */
+export function removeInstructions(file: string = instructionsPath()): boolean {
+  const source = path.join(__dirname, '..', INSTRUCTIONS_DIR, INSTRUCTIONS_FILE);
+  let installed: string;
+  let shipped: string;
+  try {
+    installed = fs.readFileSync(file, "utf8");
+    shipped = fs.readFileSync(source, "utf8");
+  } catch {
+    return false;
+  }
+  if (installed !== shipped) return false;
+
+  try {
+    fs.rmSync(file, { force: true });
+    // Remove the now-empty instructions directory, but leave anything else.
+    try {
+      fs.rmdirSync(path.dirname(file));
+    } catch {
+      // Not empty, or already gone: the file is what matters.
+    }
+    return true;
+  } catch (error) {
+    process.stderr.write(
+      `pali: could not remove ${file}: ${(error as Error).message}\n`,
+    );
+    return false;
+  }
+}
+
+/**
+ * Delete the skill this extension installed. The skill is product
+ * documentation, so it is only ours when it still matches the shipped copy:
+ * a hand edit, or another tool's skill of the same name, is left alone.
+ */
+export function removeSkill(dir: string = skillsDir()): boolean {
+  const target = path.join(dir, 'pali-memory', 'SKILL.md');
+  const source = path.join(__dirname, '..', 'skills', 'pali-memory', 'SKILL.md');
+  let installed: string;
+  let shipped: string;
+  try {
+    installed = fs.readFileSync(target, 'utf8');
+    shipped = fs.readFileSync(source, 'utf8');
+  } catch {
+    return false;
+  }
+  if (installed !== shipped) return false;
+
+  try {
+    fs.rmSync(target, { force: true });
+    // Remove the now-empty skill directory, but leave anything else in it.
+    try {
+      fs.rmdirSync(path.dirname(target));
+    } catch {
+      // Not empty, or already gone: the file is what matters.
+    }
+    return true;
+  } catch (error) {
+    process.stderr.write(
+      `pali: could not remove ${target}: ${(error as Error).message}\n`,
+    );
+    return false;
+  }
+}
+
 if (require.main === module) {
-  const removed = removeHookConfig();
+  const removedHook = removeHookConfig();
+  const removedSkill = removeSkill();
+  const removedInstructions = removeInstructions();
   process.stderr.write(
-    removed
+    removedHook
       ? 'pali: removed the Copilot hook config\n'
       : 'pali: no Copilot hook config to remove\n',
+  );
+  process.stderr.write(
+    removedSkill
+      ? 'pali: removed the Pali Memory skill\n'
+      : 'pali: no Pali Memory skill to remove\n',
+  );
+  process.stderr.write(
+    removedInstructions
+      ? 'pali: removed the Pali Memory instructions\n'
+      : 'pali: no Pali Memory instructions to remove\n',
   );
 }

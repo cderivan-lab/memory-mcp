@@ -3,6 +3,11 @@
 ## Status
 Accepted
 
+Amended by [ADR-0052](0052-optional-in-memory-https-token.md): HTTPS token
+authentication is `PALI_GIT_TOKEN` when set, otherwise git credential helpers
+or `~/.netrc`. The keyring and token-file chain in the context below is
+historical.
+
 ## Context
 Remote sync authenticated only HTTPS remotes, with a personal access token
 resolved from `PALI_GITHUB_TOKEN`, the token file, or the keyring (ADR-0010,

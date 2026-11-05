@@ -16,6 +16,11 @@ const Module = require("node:module");
 const { binaryName, bundledBinaryPath, MODEL_FILES } = require("../out/utils/install_pali");
 const pkg = require("../package.json");
 
+const shippedInstructions = fs.readFileSync(
+  path.join(__dirname, "..", "instructions", "pali-memory.instructions.md"),
+  "utf8",
+);
+
 const CONTRIBUTED_COMMANDS = (pkg.contributes?.commands ?? []).map((entry) => entry.command);
 
 function disposable() {
@@ -188,16 +193,29 @@ function makeSandbox({ bundled = true, settings = {}, workspaceFolders = true } 
   const extensionPath = path.join(root, "ext");
   const storage = path.join(root, "storage");
   const hooksDir = path.join(root, "hooks");
+  const instructionsFile = path.join(
+    root,
+    "user-instructions",
+    "pali-memory.instructions.md",
+  );
   const workspace = path.join(root, "workspace");
   for (const dir of [extensionPath, storage, workspace]) {
     fs.mkdirSync(dir, { recursive: true });
   }
+  fs.mkdirSync(path.join(extensionPath, "instructions"), { recursive: true });
+  fs.writeFileSync(
+    path.join(extensionPath, "instructions", "pali-memory.instructions.md"),
+    shippedInstructions,
+    "utf8",
+  );
 
   const bundledPath = bundledBinaryPath(extensionPath);
   if (bundled) writeExecutable(bundledPath, OK_STUB);
 
   const previousHooksDir = process.env.PALI_HOOKS_DIR;
   process.env.PALI_HOOKS_DIR = hooksDir;
+  const previousInstructions = process.env.PALI_INSTRUCTIONS_PATH;
+  process.env.PALI_INSTRUCTIONS_PATH = instructionsFile;
 
   // `pali.path` has a contributed default of "pali"; the fake config must
   // supply it too, or the installer sees an undefined path.
@@ -233,6 +251,7 @@ function makeSandbox({ bundled = true, settings = {}, workspaceFolders = true } 
     extensionPath,
     storage,
     hooksDir,
+    instructionsFile,
     workspace,
     bundledPath,
     configuration,
@@ -242,6 +261,8 @@ function makeSandbox({ bundled = true, settings = {}, workspaceFolders = true } 
     cleanup() {
       if (previousHooksDir === undefined) delete process.env.PALI_HOOKS_DIR;
       else process.env.PALI_HOOKS_DIR = previousHooksDir;
+      if (previousInstructions === undefined) delete process.env.PALI_INSTRUCTIONS_PATH;
+      else process.env.PALI_INSTRUCTIONS_PATH = previousInstructions;
       fs.rmSync(root, { recursive: true, force: true });
     },
   };
@@ -287,6 +308,18 @@ test("activation registers every contributed command and installs the hooks", as
       "userPromptTransformed",
     ]);
     assert.match(hooks.hooks.sessionStart[0].bash, /PALI_SCOPE='org\/team'/);
+
+    await waitFor(
+      () => fs.existsSync(box.instructionsFile),
+      "the user-level memory instructions",
+    );
+    const instructions = fs.readFileSync(box.instructionsFile, "utf8");
+    assert.match(instructions, /^---\n/);
+    assert.match(instructions, /^applyTo: '\*\*'$/m);
+    assert.match(instructions, /`recall`/);
+    assert.match(instructions, /`note`/);
+    assert.match(instructions, /`read`/);
+    assert.doesNotMatch(instructions, /`retain`|`reflect`/);
 
     // A bundled binary is re-resolved every activation and must not be written
     // into settings, which would pin the path of an older extension version.

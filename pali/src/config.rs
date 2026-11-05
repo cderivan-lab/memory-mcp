@@ -1,7 +1,7 @@
 //! Configuration file parsing for per-scope remotes.
 //!
-//! When a config file exists (`~/.config/memory-mcp/config.toml` or the path
-//! in `PALI_CONFIG`), it defines scope-to-repo mappings that route
+//! When a config file exists (the platform config directory, or the path in
+//! `PALI_CONFIG`), it defines scope-to-repo mappings that route
 //! specific scopes to dedicated git repositories with their own remotes.
 
 use std::path::{Path, PathBuf};
@@ -95,7 +95,7 @@ impl Config {
     ///
     /// Resolution order:
     /// 1. `PALI_CONFIG` environment variable
-    /// 2. `~/.config/memory-mcp/config.toml`
+    /// 2. `memory-mcp/config.toml` under the platform config directory
     pub fn resolve_path() -> Result<PathBuf, MemoryError> {
         if let Ok(env_path) = std::env::var("PALI_CONFIG") {
             return Ok(PathBuf::from(env_path));
