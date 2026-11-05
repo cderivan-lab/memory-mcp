@@ -34,7 +34,7 @@ const child = spawn(
       ),
       PALI_INSTRUCTIONS_PATH: resolve(
         process.env.PALI_INSTRUCTIONS_PATH ??
-          join(root, ".e2e-ui", "instructions", "pali-memory.instructions.md"),
+        join(root, ".e2e-ui", "instructions", "pali-memory.instructions.md"),
       ),
       PALI_SKILLS_DIR: resolve(
         process.env.PALI_SKILLS_DIR ?? join(root, ".e2e-ui", "skills"),

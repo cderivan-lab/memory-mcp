@@ -50,13 +50,13 @@ const skills = process.env.PALI_SKILLS_DIR
 mkdirSync(skills, { recursive: true });
 
 export default defineConfig({
-	files: "test/e2e/**/*.test.js",
-	workspaceFolder: workspace,
-	env: {
-		...process.env,
-		PALI_HOOKS_DIR: hooks,
-		PALI_INSTRUCTIONS_PATH: instructions,
-		PALI_SKILLS_DIR: skills,
-	},
-	mocha: { timeout: 60_000 },
+  files: "test/e2e/**/*.test.js",
+  workspaceFolder: workspace,
+  env: {
+    ...process.env,
+    PALI_HOOKS_DIR: hooks,
+    PALI_INSTRUCTIONS_PATH: instructions,
+    PALI_SKILLS_DIR: skills,
+  },
+  mocha: { timeout: 60_000 },
 });

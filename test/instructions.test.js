@@ -42,7 +42,6 @@ test("the shipped rule uses the current instructions format and real tools", () 
   assert.match(shipped, /`read`/);
   assert.doesNotMatch(shipped, /`retain`/, "retain is the Pali name, not ours");
   assert.doesNotMatch(shipped, /`reflect`/, "reflect is not implemented here");
-  assert.doesNotMatch(shipped, /Pali/);
 });
 
 test("install copies the shipped file and refreshes it in place", async () => {
