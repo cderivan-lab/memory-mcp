@@ -1,9 +1,11 @@
 # Release workflow — triggered by a tag push.
 #
 # A release ships two kinds of artifacts:
-#   * the `pali` binaries — Linux x86_64 and universal macOS — uploaded both as
-#     `.tar.gz` archives and as the bare `pali-<target>` assets the extension
-#     installer resolves (src/utils/install_pali.ts, `releaseUrl`);
+#   * the `pali` binaries — Linux x86_64 and universal macOS — uploaded as
+#     human-readable `.tar.gz` archives plus archives named exactly as the
+#     extension installer requests them (`releaseAssetName` in
+#     src/utils/install_pali.ts): `<target>.zip` for macOS, `<target>.tgz`
+#     for Linux;
 #   * the VS Code extension — one VSIX per VS Code target, each bundling that
 #     platform's binary as `out/bin/pali`.
 #
@@ -142,7 +144,8 @@ jobs:
 
   # Build release binaries with cargo-auditable and attach them to the release.
   # The macOS job produces one universal binary; it is uploaded under both
-  # macOS target names because the extension asks for `pali-<target>` by arch.
+  # macOS target names because the extension asks for `aarch64-apple-darwin.zip`
+  # (and maps x64 to the same universal archive).
   publish-binaries:
     needs: create-release
     strategy:
@@ -254,10 +257,14 @@ jobs:
           cp build/pali "dist/${archive}/pali"
           tar -C dist -czf "dist/${archive}.tar.gz" "${archive}"
           rm -rf "dist/${archive}"
-          # Bare assets, named the way the extension installer asks for them.
+          # Archives named the way the extension installer requests them. The
+          # installer downloads the browser URL first and retries the release
+          # asset API on 404, so these names are the API's lookup keys.
           for asset in $ASSETS; do
-            cp build/pali "dist/pali-${asset}"
-            chmod 755 "dist/pali-${asset}"
+            case "$asset" in
+              *apple-darwin) zip -q -j "dist/${asset}.zip" build/pali ;;
+              *) tar -C build -czf "dist/${asset}.tgz" pali ;;
+            esac
           done
           (cd dist && shasum -a 256 "${archive}.tar.gz" > "${archive}.tar.gz.sha256")
 

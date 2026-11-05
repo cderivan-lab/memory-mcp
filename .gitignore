@@ -23,6 +23,8 @@ mutants.out/
 openspec/.cache/
 # Machine-local tool state.
 .freebuff/
+# Local e2e configuration; .env.example is the tracked template.
+.env
 **/node_modules/**
 *.vsix
 .DS_Store

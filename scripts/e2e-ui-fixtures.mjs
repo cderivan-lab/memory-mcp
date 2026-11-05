@@ -8,8 +8,10 @@
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { loadE2eEnv } from "./load-env.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+loadE2eEnv();
 const out = join(root, ".e2e-ui");
 mkdirSync(out, { recursive: true });
 

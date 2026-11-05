@@ -485,6 +485,21 @@ jobs:
           npm run build
       - name: Extension host end-to-end
         run: xvfb-run -a npm run test:e2e
+      # Seed the repository-root `.env` the launchers read, so this job
+      # exercises the documented configuration path instead of only the
+      # throwaway-directory fallback. PALI_E2E_STORAGE stays unset: ExTester's
+      # VS Code and ChromeDriver cache lives under test-resources.
+      - name: Seed the end-to-end environment
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pali-e2e/hooks" \
+                   "$RUNNER_TEMP/pali-e2e/instructions" \
+                   "$RUNNER_TEMP/pali-e2e/skills"
+          cat > .env <<EOF
+          PALI_HOOKS_DIR=$RUNNER_TEMP/pali-e2e/hooks
+          PALI_INSTRUCTIONS_PATH=$RUNNER_TEMP/pali-e2e/instructions/pali-memory.instructions.md
+          PALI_SKILLS_DIR=$RUNNER_TEMP/pali-e2e/skills
+          EOF
       - name: Notification click end-to-end
         run: xvfb-run -a npm run test:e2e:ui
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

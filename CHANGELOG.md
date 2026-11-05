@@ -2,6 +2,15 @@
 
 ## Changes
 
+- **Private-repository downloads work with a stored token.** The browser
+  download URL (`github.com/.../releases/download/...`) answers 404 for a
+  private repository even with a valid token, so the installer now retries the
+  release asset API, which is the documented authenticated path. The model
+  archive is fetched from `raw.githubusercontent.com`, whose direct request
+  keeps the Authorization header that the `github.com/.../raw/...` redirect
+  dropped. A 404 now names the token requirement, and the release workflow
+  publishes archives under the names the installer requests (`<target>.zip`,
+  `<target>.tgz`).
 - **New `pali.remoteSync` extension setting (default `false`).** When
   enabled, the MCP server is launched with `PALI_REQUIRE_REMOTE_SYNC=true`, so
   it pulls every repository from the remote before the startup index-freshness

@@ -7,8 +7,10 @@
 import { spawn } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { loadE2eEnv } from "./load-env.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+loadE2eEnv();
 const extestCli = join(root, "node_modules", "vscode-extension-tester", "out", "cli.js");
 
 const child = spawn(
@@ -27,12 +29,15 @@ const child = spawn(
     stdio: "inherit",
     env: {
       ...process.env,
-      PALI_HOOKS_DIR: join(root, ".e2e-ui", "hooks"),
-      PALI_INSTRUCTIONS_PATH: join(
-        root,
-        ".e2e-ui",
-        "instructions",
-        "pali-memory.instructions.md",
+      PALI_HOOKS_DIR: resolve(
+        process.env.PALI_HOOKS_DIR ?? join(root, ".e2e-ui", "hooks"),
+      ),
+      PALI_INSTRUCTIONS_PATH: resolve(
+        process.env.PALI_INSTRUCTIONS_PATH ??
+          join(root, ".e2e-ui", "instructions", "pali-memory.instructions.md"),
+      ),
+      PALI_SKILLS_DIR: resolve(
+        process.env.PALI_SKILLS_DIR ?? join(root, ".e2e-ui", "skills"),
       ),
     },
   },

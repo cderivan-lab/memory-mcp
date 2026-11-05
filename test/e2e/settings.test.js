@@ -90,6 +90,42 @@ async function applyProfile(profile) {
 }
 
 /**
+ * The settings `activate` builds its MCP definition from. Read the editor fresh
+ * on every call: a configuration object captured before `update` can keep
+ * answering with the previous value.
+ */
+function readSettings() {
+  const config = vscode.workspace.getConfiguration(SECTION);
+  return {
+    binPath: String(config.get("path") || "pali"),
+    repoPath: String(config.get("repoPath") || "").trim(),
+    remoteUrl: String(config.get("remoteUrl") || "").trim(),
+    remoteSync: config.get("remoteSync") ?? false,
+    branch: String(config.get("branch") || "main").trim() || "main",
+    scope: String(config.get("scope") || "").trim(),
+    modelPath: String(config.get("modelPath") || "").trim(),
+  };
+}
+
+/**
+ * Poll until the editor reports `value` for `pali.<key>`. `update` resolves
+ * before every live configuration snapshot reflects it, so a bounded poll
+ * keeps the assertions from observing the setting that was just replaced.
+ */
+async function waitForSetting(key, value, timeoutMs = 20_000) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const actual = vscode.workspace.getConfiguration(SECTION).get(key);
+    if (actual === value) return;
+    assert.ok(
+      Date.now() < deadline,
+      `pali.${key} never became ${JSON.stringify(value)} (last: ${JSON.stringify(actual)})`,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
+
+/**
  * Poll until the hook file satisfies `predicate`. The extension rewrites it
  * from an async configuration listener, so the write is never synchronous with
  * `config.update`; a bounded poll keeps the assertion from racing it.
@@ -210,28 +246,18 @@ suite("pali extension end-to-end", () => {
       remoteUrl: "https://example.com/mem.git",
       remoteSync: true,
     });
+    await waitForSetting("remoteSync", true);
 
     // The editor has no read-back for a registered provider's definitions, so
-    // run the definition builder `activate` uses with the setting the editor
+    // run the definition builder `activate` uses with the settings the editor
     // actually returned, mirroring the modelPath test.
     const { mcpServerDefinition } = require(
       path.join(extension.extensionPath, "out", "utils", "lib"),
     );
-    const config = vscode.workspace.getConfiguration(SECTION);
-    const definition = mcpServerDefinition(
-      {
-        binPath: String(config.get("path") || "pali"),
-        repoPath: String(config.get("repoPath") || "").trim(),
-        remoteUrl: String(config.get("remoteUrl") || "").trim(),
-        remoteSync: config.get("remoteSync") ?? false,
-        branch: String(config.get("branch") || "main").trim() || "main",
-        scope: String(config.get("scope") || "").trim(),
-      },
-      undefined,
-    );
+    const definition = mcpServerDefinition(readSettings(), undefined);
 
     assert.equal(
-      config.get("remoteSync"),
+      readSettings().remoteSync,
       true,
       "pali.remoteSync must round-trip through the editor's configuration",
     );
@@ -242,17 +268,8 @@ suite("pali extension end-to-end", () => {
     );
 
     await applyProfile({ remoteSync: false });
-    const off = mcpServerDefinition(
-      {
-        binPath: String(config.get("path") || "pali"),
-        repoPath: String(config.get("repoPath") || "").trim(),
-        remoteUrl: String(config.get("remoteUrl") || "").trim(),
-        remoteSync: config.get("remoteSync") ?? false,
-        branch: String(config.get("branch") || "main").trim() || "main",
-        scope: String(config.get("scope") || "").trim(),
-      },
-      undefined,
-    );
+    await waitForSetting("remoteSync", false);
+    const off = mcpServerDefinition(readSettings(), undefined);
     assert.equal(
       off.env.PALI_REQUIRE_REMOTE_SYNC,
       undefined,
@@ -341,6 +358,7 @@ suite("pali extension end-to-end", () => {
 
     try {
       await applyProfile({ modelPath });
+      await waitForSetting("modelPath", modelPath);
 
       // The hook file is written by the extension's own settings read, so this
       // also proves activation exports `pali.modelPath` to every hook event.
@@ -368,22 +386,10 @@ suite("pali extension end-to-end", () => {
       const { mcpServerDefinition } = require(
         path.join(extension.extensionPath, "out", "utils", "lib"),
       );
-      const config = vscode.workspace.getConfiguration(SECTION);
-      const definition = mcpServerDefinition(
-        {
-          binPath: String(config.get("path") || "pali"),
-          repoPath: String(config.get("repoPath") || "").trim(),
-          remoteUrl: String(config.get("remoteUrl") || "").trim(),
-          remoteSync: config.get("remoteSync") ?? false,
-          branch: String(config.get("branch") || "main").trim() || "main",
-          scope: String(config.get("scope") || "").trim(),
-          modelPath: String(config.get("modelPath") || "").trim(),
-        },
-        undefined,
-      );
+      const definition = mcpServerDefinition(readSettings(), undefined);
 
       assert.equal(
-        config.get("modelPath"),
+        readSettings().modelPath,
         modelPath,
         "pali.modelPath must round-trip through the editor's configuration",
       );
