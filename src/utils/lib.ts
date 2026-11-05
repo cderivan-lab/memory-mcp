@@ -3,6 +3,8 @@
 // the extension host. The activate/deactivate entry points live in
 // extension.ts and wire these into the VS Code API.
 
+import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import {
   getReleaseTarget,
@@ -14,6 +16,7 @@ import {
 } from "./install_pali";
 import { rustLogFilter } from "./logger";
 import type { LogLevel } from "./logger";
+import { INSTRUCTIONS_DIR, INSTRUCTIONS_FILE } from "./instructions";
 
 /** Settings exposed by this extension. */
 export interface ExtensionSettings {
@@ -105,6 +108,124 @@ interface HookEntry {
 /** Stringify the hook config with a trailing newline. */
 export function hookConfigBody(extensionPath: string, config: ExtensionSettings): string {
   return `${JSON.stringify(buildHookConfig(extensionPath, config), null, 2)}\n`;
+}
+
+/**
+ * User-level Copilot skills directory. The extension installs the skill here
+ * once per machine, like the hooks file, so every project's agent sees it.
+ * `PALI_SKILLS_DIR` redirects it so tests never write the real home.
+ */
+export function userSkillsDir(): string {
+  return process.env.PALI_SKILLS_DIR || path.join(os.homedir(), '.copilot', 'skills');
+}
+
+/** The SKILL.md shipped inside the extension directory. */
+export function skillSourcePath(extensionPath: string): string {
+  return path.join(extensionPath, 'skills', 'pali-memory', 'SKILL.md');
+}
+
+/** Installed copy of the skill for the current user. */
+export function skillInstallPath(dir: string = userSkillsDir()): string {
+  return path.join(dir, 'pali-memory', 'SKILL.md');
+}
+
+/**
+ * Copy the shipped skill into the user's skills directory when it is missing
+ * or differs from the shipped body. The skill is product documentation, so an
+ * extension update refreshes it instead of leaving a stale copy behind.
+ */
+export function installSkill(
+  extensionPath: string,
+  dir: string = userSkillsDir(),
+): 'installed' | 'current' | 'missing' | 'failed' {
+  let body: string;
+  try {
+    body = fs.readFileSync(skillSourcePath(extensionPath), 'utf8');
+  } catch {
+    return 'missing';
+  }
+
+  const target = skillInstallPath(dir);
+  try {
+    if (fs.readFileSync(target, 'utf8') === body) return 'current';
+  } catch {
+    // Missing: write it below.
+  }
+
+  try {
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, body, 'utf8');
+    return 'installed';
+  } catch {
+    return 'failed';
+  }
+}
+
+/**
+ * User-level Copilot instructions directory. A dedicated
+ * `pali-memory.instructions.md` lives here in the current frontmatter format,
+ * so the user's `copilot-instructions.md` is never rewritten.
+ */
+export function userInstructionsDir(): string {
+  return path.join(os.homedir(), '.copilot', INSTRUCTIONS_DIR);
+}
+
+/** The instructions file shipped inside the extension directory. */
+export function instructionsSourcePath(extensionPath: string): string {
+  return path.join(extensionPath, INSTRUCTIONS_DIR, INSTRUCTIONS_FILE);
+}
+
+/** Installed copy of the instructions file for the current user. */
+export function instructionsInstallPath(
+  dir: string = userInstructionsDir(),
+): string {
+  return path.join(dir, INSTRUCTIONS_FILE);
+}
+
+/**
+ * Full path of the installed instructions file. `PALI_INSTRUCTIONS_PATH`
+ * redirects it so tests never write into the real home directory.
+ */
+export function userInstructionsPath(): string {
+  return process.env.PALI_INSTRUCTIONS_PATH || instructionsInstallPath();
+}
+
+/** Outcome of copying the shipped instructions file. */
+export type InstructionsInstallStatus =
+  | 'installed'
+  | 'current'
+  | 'missing'
+  | 'failed';
+
+/**
+ * Copy the shipped Pali Memory instructions into the user's Copilot
+ * instructions directory. A missing source means an older or incomplete
+ * extension build; the installed copy is left alone rather than erased.
+ */
+export function installInstructions(
+  extensionPath: string,
+  file: string = userInstructionsPath(),
+): InstructionsInstallStatus {
+  let body: string;
+  try {
+    body = fs.readFileSync(instructionsSourcePath(extensionPath), 'utf8');
+  } catch {
+    return 'missing';
+  }
+
+  try {
+    if (fs.readFileSync(file, 'utf8') === body) return 'current';
+  } catch {
+    // Missing: write it below.
+  }
+
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, body, 'utf8');
+    return 'installed';
+  } catch {
+    return 'failed';
+  }
 }
 
 /** Stdio server definition for VS Code's MCP server definition provider. */

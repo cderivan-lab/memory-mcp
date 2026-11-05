@@ -15,9 +15,16 @@ process.on("exit", () => rmSync(workspace, { recursive: true, force: true }));
 const hooks = mkdtempSync(join(tmpdir(), "pali-e2e-hooks-"));
 process.on("exit", () => rmSync(hooks, { recursive: true, force: true }));
 
+const instructions = mkdtempSync(join(tmpdir(), "pali-e2e-instructions-"));
+process.on("exit", () => rmSync(instructions, { recursive: true, force: true }));
+
 export default defineConfig({
 	files: "test/e2e/**/*.test.js",
 	workspaceFolder: workspace,
-	env: { ...process.env, PALI_HOOKS_DIR: hooks },
+	env: {
+		...process.env,
+		PALI_HOOKS_DIR: hooks,
+		PALI_INSTRUCTIONS_PATH: join(instructions, "pali-memory.instructions.md"),
+	},
 	mocha: { timeout: 60_000 },
 });

@@ -164,6 +164,14 @@ test(
       ["extension/hooks/copilot-hooks.mjs", "extension/hooks/pali-client.mjs"],
       "only the runtime hook modules ship",
     );
+    assert.ok(
+      readZipEntry(archive, "extension/skills/pali-memory/SKILL.md"),
+      "the skill must ship so activation can install it for the user",
+    );
+    assert.ok(
+      readZipEntry(archive, "extension/instructions/pali-memory.instructions.md"),
+      "the memory instructions must ship so activation can copy them for the user",
+    );
     for (const absent of [
       "extension/.vscode-test.mjs",
       "extension/.freebuff/project-id",
