@@ -17,7 +17,11 @@ import {
 import type { ResolveResult } from './utils/install_pali';
 import {
   hookConfigBody,
+  installInstructions,
+  installSkill,
   mcpServerDefinition,
+  skillInstallPath,
+  userInstructionsPath,
   workspaceBootstrapCommand,
   workspaceBootstrapSummary,
   ExtensionSettings,
@@ -430,6 +434,33 @@ function activate(context: vscode.ExtensionContext): void {
 
   // Install the Copilot hooks
   void installHooks(context, true);
+
+  // Install the agent-facing skill once per user, like the hooks. A missing
+  // source or an unwritable home is reported but never blocks activation.
+  const skill = installSkill(context.extensionPath);
+  if (skill === 'installed') {
+    output.appendLine(`pali: installed skill at ${skillInstallPath()}`);
+  } else if (skill === 'failed') {
+    output.appendLine('pali: could not install the Pali Memory skill');
+  }
+
+  // Copy the always-on memory rule into the user-level instructions folder.
+  // It is a dedicated `*.instructions.md` file, so the user's
+  // `copilot-instructions.md` is never rewritten.
+  const instructions = installInstructions(context.extensionPath);
+  if (instructions === 'installed') {
+    output.appendLine(
+      `pali: installed memory instructions at ${userInstructionsPath()}`,
+    );
+  } else if (instructions === 'missing') {
+    output.appendLine(
+      'pali: memory instructions are missing from this extension build',
+    );
+  } else if (instructions === 'failed') {
+    output.appendLine(
+      `pali: could not install memory instructions at ${userInstructionsPath()}`,
+    );
+  }
 
   // Initialize the pali binary: resolve existing or offer to install. The
   // token getter reads secret storage per download so a token set via

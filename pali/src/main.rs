@@ -57,8 +57,8 @@ struct ServeArgs {
     repo_path: String,
 
     /// Path to the TOML config file for per-scope remote mapping.
-    /// Defaults to `~/.config/memory-mcp/config.toml`. Set to an empty
-    /// string to disable config loading.
+    /// Defaults to `memory-mcp/config.toml` under the platform config
+    /// directory. Set to an empty string to disable config loading.
     #[arg(long, env = "PALI_CONFIG")]
     config: Option<String>,
 

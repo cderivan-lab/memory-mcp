@@ -28,6 +28,12 @@ const child = spawn(
     env: {
       ...process.env,
       PALI_HOOKS_DIR: join(root, ".e2e-ui", "hooks"),
+      PALI_INSTRUCTIONS_PATH: join(
+        root,
+        ".e2e-ui",
+        "instructions",
+        "pali-memory.instructions.md",
+      ),
     },
   },
 );

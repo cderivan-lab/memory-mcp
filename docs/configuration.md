@@ -16,7 +16,7 @@ pre-0.19 artifact and its former environment names.
 | Flag | Environment variable | Default | Purpose |
 | --- | --- | --- | --- |
 | `--repo-path` | `PALI_REPO_PATH` | `~/.memory-mcp` | Git-backed memory repository |
-| `--config` | `PALI_CONFIG` | `~/.config/memory-mcp/config.toml` | TOML config file for per-scope remote mapping; empty string disables config loading |
+| `--config` | `PALI_CONFIG` | platform config dir (see below) | TOML config file for per-scope remote mapping; empty string disables config loading |
 | `--remote-url` | `PALI_REMOTE_URL` | unset | Git remote: HTTPS/SSH URL or an absolute path to a local repository; omit for local-only mode |
 | `--branch` | `PALI_BRANCH` | `main` | Branch used for push and pull |
 | `--require-remote-sync` | `PALI_REQUIRE_REMOTE_SYNC` | `false` | Pull every repository before startup index freshness is decided; requires `--remote-url` |
@@ -26,6 +26,12 @@ The VS Code extension exposes `--require-remote-sync` as `pali.remoteSync`
 (default `false`) and passes it to the server as `PALI_REQUIRE_REMOTE_SYNC`.
 When enabled, the server pulls every repository before the startup
 index-freshness decision and refuses to start when `pali.remoteUrl` is empty.
+
+The config file is `memory-mcp/config.toml` under the platform's config
+directory: `~/.config/memory-mcp/config.toml` on Linux,
+`~/Library/Application Support/memory-mcp/config.toml` on macOS, and
+`%APPDATA%\memory-mcp\config.toml` on Windows. `PALI_CONFIG` overrides it; an
+empty value disables config loading.
 
 `pali serve` serves one MCP session over stdin/stdout. Diagnostics stay on
 stderr so stdout carries only MCP frames. Each concurrent client needs its own
@@ -49,9 +55,9 @@ three places:
   channel with a timestamp and level prefix.
 
 Setting `pali.logLevel` to `debug` is the usual first step when diagnosing
-recall misses or git sync problems. Security-relevant events (auth failures,
-invalid inputs) are logged at `warn` or higher regardless of level, and no
-log line ever carries a token, credential, or memory content.
+recall misses or git sync problems. Security-relevant events (invalid inputs,
+rejected repository paths) are logged at `warn` or higher regardless of level,
+and no log line ever carries a token, credential, or memory content.
 
 ## Embedding work
 
@@ -76,45 +82,10 @@ the variable to an empty string to fall back to the credential helper.
 `PALI_REMOTE_URL` also accepts an absolute path to a local or bare repository.
 Git resolves path remotes directly, with no authentication.
 
-Select storage explicitly when needed:
-
-```bash
-pali auth login --store keyring
-pali auth login --store file
-pali auth login --store stdout
-```
-
-At runtime, token resolution checks `PALI_GITHUB_TOKEN`, then the token
-file, then the system keyring. Tokens are never accepted as CLI arguments.
-
-This authentication config is for outbound Git synchronization. Federated
-memory reads do not use it and never borrow a server credential.
-
-## Federated sibling stores
-
-Name this Pali instance and its trusted sibling MCP endpoints in the same TOML
-file used for per-scope remotes:
-
-```toml
-store_id = "personal"
-straddle_timeout_ms = 2000
-
-[siblings]
-fcc = "https://friends-collective-conscious.svc.echoes/mcp"
-lcc = "https://collective-conscious.svc.echoes/mcp"
-```
-
-Then call `read` with `straddle: true` to query the local store and all
-siblings concurrently. The response keeps each fragment under its `store_id`
-and distinguishes `not_found`, `unreachable`, and `identity_unavailable`.
-Ordinary `read` calls retain their existing response shape.
-
-Sibling endpoints are topology, not authority. They must use HTTPS (except
-loopback HTTP for tests) and cannot contain credentials, query parameters, or
-fragments. A straddled request forwards the caller's inbound bearer token
-opaquely to each configured sibling. Without that caller delegation, Pali
-returns the local result, marks each sibling `identity_unavailable`, and makes
-no sibling requests.
+The CLI has no `auth` subcommand: it exposes `serve`, `warmup`,
+`recall-stats`, `scan`, `index`, and `dataset`. There is no token file or
+keyring store — a token comes from `PALI_GIT_TOKEN` or from git's own
+credential configuration.
 
 ## Embedding model
 

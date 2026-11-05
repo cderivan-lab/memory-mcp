@@ -9,9 +9,34 @@ crate is built from `pali/`
 - writes the user-level `~/.copilot/hooks/pali.json` once per machine, so the
   Copilot hooks recall project memories at session start, inject relevant
   memories per prompt, and capture a session digest when the agent stops
+- copies a Pali Memory instruction file to
+  `~/.copilot/instructions/pali-memory.instructions.md` (frontmatter
+  `applyTo: '**'`), so Copilot recalls context at task start and stores durable
+  facts with `note`
 
 The hooks themselves live in `hooks/` and are unchanged from the standalone
 Copilot hook scripts.
+
+## Quick reference
+
+Pali keeps memories as Markdown in a git-backed repository (`~/.memory-mcp` by
+default) and serves them over MCP:
+
+| Need | Tool |
+| --- | --- |
+| Save a finding, decision, or document | `note` (`remember` is the same operation) |
+| Search by meaning or keyword | `recall` |
+| Read a full memory | `read` |
+| Browse or filter by tag | `list` |
+| Change, relocate, or delete | `edit`, `move`, `forget` |
+| Share over git | `sync` |
+
+Pass the project scope (the git repository name) when saving or searching
+project memories — the tools default to global. The extension installs the
+agent-facing guide at `~/.copilot/skills/pali-memory/SKILL.md` and refreshes it
+at activation; the same guide is in
+[`skills/pali-memory/SKILL.md`](skills/pali-memory/SKILL.md). It also copies the
+always-on rule to `~/.copilot/instructions/pali-memory.instructions.md`.
 
 ## Settings
 
@@ -92,7 +117,10 @@ point into the extension directory, so leaving the file behind would make
 every hook event fail until it was deleted by hand. A file at that path that
 the extension did not write is left untouched. Generated hook commands also
 check for the script before running it and exit successfully when it is gone,
-so a stale hook file cannot surface `MODULE_NOT_FOUND` stack traces.
+so a stale hook file cannot surface `MODULE_NOT_FOUND` stack traces. The same
+script removes `~/.copilot/instructions/pali-memory.instructions.md` (or
+`PALI_INSTRUCTIONS_PATH`) only when it still matches the shipped copy; a
+hand-edited file is left alone.
 
 ## Scan and index a workspace
 
