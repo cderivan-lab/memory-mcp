@@ -2,8 +2,7 @@
 /**
  * Copilot CLI / VS Code `agentStop` hook — pali (memory-mcp) edition.
  *
- * The Hindsight version shipped the transcript off to a server that ran an LLM
- * extraction mission. pali stores markdown verbatim, so this hook captures a
+ * Pali stores markdown verbatim, so this hook captures a
  * compact, deterministic digest of the session instead: what was asked, which
  * files were modified, which commands ran, what failed, and how it ended. The
  * memory is upserted (same name per session per day) and skipped entirely when

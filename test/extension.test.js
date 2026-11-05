@@ -1204,6 +1204,18 @@ test("the MCP provider publishes nothing when no binary resolves", async () => {
   const storage = join(tmpdir(), `pali-test-provider-${Date.now()}`);
   const extensionRoot = join(tmpdir(), `pali-test-ext-provider-${Date.now()}`);
   await mkdir(storage, { recursive: true });
+  await mkdir(join(extensionRoot, "skills", "pali-memory"), { recursive: true });
+  await writeFile(
+    join(extensionRoot, "skills", "pali-memory", "SKILL.md"),
+    "name: pali-memory\n",
+    "utf8",
+  );
+  await mkdir(join(extensionRoot, "instructions"), { recursive: true });
+  await writeFile(
+    join(extensionRoot, "instructions", "pali-memory.instructions.md"),
+    await readFile(join(__dirname, "..", "instructions", "pali-memory.instructions.md"), "utf8"),
+    "utf8",
+  );
 
   // Activation writes the user-level hook config. Point it at the throwaway
   // extension root: without this, the test overwrites the real
@@ -1211,6 +1223,14 @@ test("the MCP provider publishes nothing when no binary resolves", async () => {
   // every later Copilot hook fails with MODULE_NOT_FOUND.
   const previousHooksDir = process.env.PALI_HOOKS_DIR;
   process.env.PALI_HOOKS_DIR = join(extensionRoot, "hooks");
+  const previousSkillsDir = process.env.PALI_SKILLS_DIR;
+  process.env.PALI_SKILLS_DIR = join(extensionRoot, "user-skills");
+  const previousInstructions = process.env.PALI_INSTRUCTIONS_PATH;
+  process.env.PALI_INSTRUCTIONS_PATH = join(
+    extensionRoot,
+    "user-instructions",
+    "pali-memory.instructions.md",
+  );
 
   const disposable = () => ({ dispose() {} });
   let provider;
@@ -1267,10 +1287,27 @@ test("the MCP provider publishes nothing when no binary resolves", async () => {
 
     assert.ok(provider, "activate must register the MCP server definition provider");
     assert.deepEqual(await provider.provideMcpServerDefinitions(), []);
+    assert.equal(
+      await readFile(join(extensionRoot, "user-skills", "pali-memory", "SKILL.md"), "utf8"),
+      "name: pali-memory\n",
+      "activation must install the skill for the user",
+    );
+    const instructions = await readFile(
+      join(extensionRoot, "user-instructions", "pali-memory.instructions.md"),
+      "utf8",
+    );
+    assert.match(instructions, /^---\n/);
+    assert.match(instructions, /^applyTo: '\*\*'$/m);
+    assert.match(instructions, /`recall`/);
+    assert.match(instructions, /`note`/);
   } finally {
     Module._load = originalLoad;
     if (previousHooksDir === undefined) delete process.env.PALI_HOOKS_DIR;
     else process.env.PALI_HOOKS_DIR = previousHooksDir;
+    if (previousSkillsDir === undefined) delete process.env.PALI_SKILLS_DIR;
+    else process.env.PALI_SKILLS_DIR = previousSkillsDir;
+    if (previousInstructions === undefined) delete process.env.PALI_INSTRUCTIONS_PATH;
+    else process.env.PALI_INSTRUCTIONS_PATH = previousInstructions;
     await rm(extensionRoot, { recursive: true, force: true });
     await rm(storage, { recursive: true, force: true });
   }

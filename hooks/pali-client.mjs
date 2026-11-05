@@ -76,7 +76,7 @@ export function log(level, message, extra) {
     mkdirSync(STATE_DIR, { recursive: true, mode: 0o700 });
     try {
       if (statSync(file).size >= LOG_MAX_BYTES) renameSync(file, `${file}.1`);
-    } catch {}
+    } catch { }
     const detail = extra && Object.keys(extra).length ? ` ${JSON.stringify(extra)}` : "";
     appendFileSync(
       file,
@@ -85,7 +85,7 @@ export function log(level, message, extra) {
         mode: 0o600,
       },
     );
-  } catch {}
+  } catch { }
 }
 
 function describeError(error) {
@@ -150,7 +150,7 @@ export function sanitizeScope(value) {
   return components.length ? components.join("/") : "unknown-project";
 }
 
-/** The git project name (matching the old Hindsight `{gitProject}` bank), else the cwd name. */
+/** The git project name, else the cwd name. */
 export function projectScope(cwd, config = hookConfig()) {
   if (config.scope) return sanitizeScope(config.scope);
   let name = "";
@@ -162,7 +162,7 @@ export function projectScope(cwd, config = hookConfig()) {
       stdio: ["ignore", "pipe", "ignore"],
     }).trim();
     if (top) name = basename(top);
-  } catch {}
+  } catch { }
   if (!name) name = basename(cwd || process.cwd());
   return sanitizeScope(name);
 }
@@ -233,14 +233,14 @@ export function callTool(name, args, options = {}) {
         child.stdin.destroy();
         child.stdout.destroy();
         child.stderr.destroy();
-      } catch {}
+      } catch { }
       try {
         child.kill("SIGTERM");
-      } catch {}
+      } catch { }
       const reap = setTimeout(() => {
         try {
           child.kill("SIGKILL");
-        } catch {}
+        } catch { }
       }, 2000);
       if (typeof reap.unref === "function") reap.unref();
       settle(value);
@@ -264,7 +264,7 @@ export function callTool(name, args, options = {}) {
     child.stderr.on("data", (chunk) => {
       stderrTail = (stderrTail + chunk).slice(-4000);
     });
-    child.stdin.on("error", () => {});
+    child.stdin.on("error", () => { });
     child.stdout.setEncoding("utf8");
     child.stdout.on("data", (chunk) => {
       buffer += chunk;
@@ -380,7 +380,7 @@ export function recordInjected(sessionId, names) {
     writeFileSync(sessionStateFile(sessionId), JSON.stringify({ injected: trimmed }), {
       mode: 0o600,
     });
-  } catch {}
+  } catch { }
 }
 
 // ---------------------------------------------------------------------------
@@ -410,8 +410,8 @@ export function formatMemoryBlock({ scope, memories, intro, budget = 6000 }) {
     const content = String(memory.content ?? "").trim();
     const tags = Array.isArray(memory.tags)
       ? memory.tags
-          .filter((tag) => typeof tag === "string" && !tag.startsWith("source-sha:"))
-          .slice(0, 6)
+        .filter((tag) => typeof tag === "string" && !tag.startsWith("source-sha:"))
+        .slice(0, 6)
       : [];
     const lines = [`### ${memory.name}`];
     if (content) lines.push(content);
