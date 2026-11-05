@@ -141,8 +141,8 @@ async function installHooks(
   let current = '';
   try {
     current = fs.readFileSync(target, 'utf8');
-  } catch {
-    // Missing file: write it below.
+  } catch(error) {
+      log.error(`Pali: could not read hook config: ${(error as Error).message}`);
   }
   if (current === body) return true;
 
