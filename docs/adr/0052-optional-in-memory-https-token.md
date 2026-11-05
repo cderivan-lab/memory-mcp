@@ -1,6 +1,7 @@
 # ADR-0052: Optional in-memory HTTPS git token
 
 ## Status
+
 Accepted
 
 ## Context

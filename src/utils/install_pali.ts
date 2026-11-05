@@ -16,8 +16,8 @@ import modelManifest from "../model-manifest.json";
 // A token cannot authenticate the browser download URL
 // (`github.com/<owner>/<repo>/releases/download/...`): a private repository
 // answers 404 even for a valid token. The release asset API is the
-// token-authenticated path, so `installLatest` retries through it when the
-// browser URL reports 404. Raw files have the same problem on
+// token-authenticated path, so `installLatest` resolves and downloads the
+// asset through it directly. Raw files have the same problem on
 // `github.com/<repo>/raw/...`, where the cross-origin redirect drops the
 // Authorization header, so the model archive is fetched from
 // `raw.githubusercontent.com` directly.
@@ -439,23 +439,29 @@ interface ReleaseInfo {
   assets?: ReleaseAsset[];
 }
 
-/** Read the newest release, or null when the API is unavailable. */
-async function fetchLatestRelease(token?: string | null): Promise<ReleaseInfo | null> {
+/** Read the newest release, throwing with context when the API lookup fails. */
+async function fetchLatestRelease(token?: string | null): Promise<ReleaseInfo> {
   try {
     const response = await fetch(`${PROJECT_API_URL}/releases/latest`, {
       headers: authHeaders(token),
     });
-    if (!response.ok) return null;
+    if (!response.ok) {
+      throw new Error(`${response.status} ${response.statusText}`.trim());
+    }
     return (await response.json()) as ReleaseInfo;
-  } catch {
-    return null;
+  } catch (error) {
+    throw new Error(`Latest release API lookup failed: ${(error as Error).message}`);
   }
 }
 
 /** Read the newest release tag from the GitHub REST API. */
 async function fetchLatestVersion(token?: string | null): Promise<string | null> {
-  const release = await fetchLatestRelease(token);
-  return release?.tag_name?.trim() || null;
+  try {
+    const release = await fetchLatestRelease(token);
+    return release.tag_name?.trim() || null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -504,17 +510,17 @@ function validateArchiveBytes(bytes: Buffer, dest: string): void {
     log.error(`download of ${dest} returned an HTML login page, not an archive`);
     throw new Error(
       `The server returned a login page instead of the file for ${dest} ` +
-        "(the download was redirected to single sign-on).\n" +
-        'Run "Pali: Set HTTPS Token" and store a token with repo read access.',
+      "(the download was redirected to single sign-on).\n" +
+      'Run "Pali: Set HTTPS Token" and store a token with repo read access.',
     );
   }
   log.error(
     `download of ${dest} has unrecognized content ` +
-      `(starts ${bytes.subarray(0, 8).toString("hex")})`,
+    `(starts ${bytes.subarray(0, 8).toString("hex")})`,
   );
   throw new Error(
     `The downloaded file ${dest} is neither a zip nor a tar.gz archive. ` +
-      "The release asset may have moved; check the release page or retry.",
+    "The release asset may have moved; check the release page or retry.",
   );
 }
 
@@ -561,7 +567,7 @@ async function readErrorSnippet(response: Response): Promise<string> {
   } catch {
     return "";
   } finally {
-    await reader.cancel().catch(() => {});
+    await reader.cancel().catch(() => { });
   }
 }
 
@@ -588,7 +594,7 @@ async function streamToFile(
     const detail = snippet ? `\nServer said: ${snippet}` : "";
     log.error(
       `${response.status} ${response.statusText} for ${response.url}` +
-        (snippet ? `: ${snippet}` : ""),
+      (snippet ? `: ${snippet}` : ""),
     );
     throw new DownloadError(base + hint + detail, response.status);
   }
@@ -617,7 +623,7 @@ async function downloadWithProgress(
   });
   log.info(
     `server answered ${response.status} ${response.statusText} ` +
-      `(content-type: ${response.headers.get("content-type") || "unknown"})`,
+    `(content-type: ${response.headers.get("content-type") || "unknown"})`,
   );
   await streamToFile(
     response,
@@ -725,12 +731,12 @@ export async function installModel(ui: UI): Promise<string | null> {
     log.error(`model download failed: ${(error as Error).message}`);
     ui.error(
       `Could not download the ${MODEL_DIR_NAME} model: ${(error as Error).message}\n` +
-        "Run scripts/fetch-model.sh and set PALI_MODEL_DIR instead.",
+      "Run scripts/fetch-model.sh and set PALI_MODEL_DIR instead.",
     );
     return null;
   } finally {
     // Keep only the extracted files, not the archive.
-    await fs.rm(zipPath, { force: true }).catch(() => {});
+    await fs.rm(zipPath, { force: true }).catch(() => { });
   }
   return dir;
 }
@@ -909,7 +915,7 @@ export async function installLatest(ui: UI): Promise<void> {
     log.error(`no prebuilt binary for ${process.platform}-${process.arch}`);
     throw new Error(
       `Prebuilt binaries are not available for ${process.platform}-${process.arch}. ` +
-        `Set "pali.path" to a manually built pali, or download from the release page.`,
+      `Set "pali.path" to a manually built pali, or download from the release page.`,
     );
   }
   log.info(`installing pali for ${process.platform}-${process.arch} (target ${target})`);
@@ -938,64 +944,58 @@ export async function installLatest(ui: UI): Promise<void> {
 
   await ui.progress(`Installing pali (${target})...`, null, async (reportProgress) => {
     const name = releaseAssetName(target);
-    const url = releaseUrl(target);
+    // Use the token-authenticated release asset API directly. The browser
+    // download URL does not pass the HTTPS token to private repositories.
+    const token = await ui.getToken?.();
+    const assetUrl = await releaseAssetUrl(name, token);
+    if (!assetUrl) {
+      log.error(`failed to resolve ${name} asset URL via the release API`);
+      throw new Error(
+        `Could not find the ${name} asset in the latest release. ` +
+        "Check the release page or ensure a token with repo read access is configured.",
+      );
+    }
+
     const archivePath = path.join(ui.storagePath, name);
     const dest = path.join(ui.storagePath, binaryName());
-    const token = await ui.getToken?.();
-    log.info(`release asset: ${name} from ${url}`);
+    log.info(`downloading ${name} from the release asset API`);
     try {
-      try {
-        await downloadWithProgress(url, archivePath, reportProgress, token);
-      } catch (error) {
-        // A private repository answers 404 on the browser URL even for a valid
-        // token, so retry the documented token-authenticated path before
-        // reporting the download as failed.
-        if (!(error instanceof DownloadError) || error.status !== 404) throw error;
-        const assetUrl = await releaseAssetUrl(name, token);
-        if (!assetUrl) throw error;
-        log.info(`retrying ${name} through the release asset API`);
-        await downloadWithProgress(assetUrl, archivePath, reportProgress, token, {
-          Accept: "application/octet-stream",
-        });
-      }
+      await downloadWithProgress(assetUrl, archivePath, reportProgress, token, {
+        Accept: "application/octet-stream",
+      });
       log.info(`extracting ${binaryName()} from ${path.basename(archivePath)}...`);
       await extractBinaryFromArchive(await fs.readFile(archivePath), ui.storagePath, target);
-      log.success(`binary extracted to ${dest}`);
       ui.paliPath = dest;
     } finally {
       // Keep only the extracted executable, not the archive.
-      await fs.rm(archivePath, { force: true }).catch(() => {});
+      await fs.rm(archivePath, { force: true }).catch(() => { });
     }
-
-    // Try to get the version from the binary. `pali --version` prints
-    // "pali <semver>"; keep only the version so update checks compare tags.
-    let version = "latest";
-    try {
-      const { execFile } = require("node:child_process");
-      const { promisify } = require("node:util");
-      const execFileAsync = promisify(execFile);
-      const { stdout } = await execFileAsync(dest, ["--version"]);
-      version = stdout.trim().split(/\s+/).pop() || "latest";
-    } catch {
-      // Keep 'latest' if version check fails
-    }
-
-    await writeMaintenance(ui.storagePath, {
-      installedVersion: version,
-      checkUpdates: true,
-    });
   });
 
-  // The server cannot start without the embedding model, so offer it in the
-  // same install flow. The prompt keeps the ~130 MB download a user choice;
-  // installModel reports its own failure, so a model problem never blocks the
-  // binary install.
+  // `pali --version` prints "pali <semver>"; store just the version used by
+  // update checks. Keep "latest" if the executable cannot report it.
+  let version = "latest";
+  try {
+    const { execFile } = require("node:child_process");
+    const { promisify } = require("node:util");
+    const execFileAsync = promisify(execFile);
+    const { stdout } = await execFileAsync(ui.paliPath, ["--version"]);
+    version = stdout.trim().split(/\s+/).pop() || "latest";
+  } catch {
+    // Keep 'latest' if version check fails.
+  }
+
+  await writeMaintenance(ui.storagePath, {
+    installedVersion: version,
+    checkUpdates: true,
+  });
+
+  // The server needs the embedding model too; keep its large download optional.
   await provisionModel(ui, true);
 
   await ui.promptReload(`pali installed at ${ui.paliPath}`);
 }
 
-/** Normalise a release tag for comparison ("v1.0.0" and "1.0.0" are equal). */
 function normalizeVersion(version: string): string {
   return version.trim().replace(/^v/i, "");
 }

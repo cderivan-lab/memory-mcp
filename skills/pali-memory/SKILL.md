@@ -70,7 +70,20 @@ Details that matter in practice:
   overrides it. A linked worktree resolves to its own top-level directory, so a
   differently named worktree gets its own scope; there is no main-checkout
   aliasing. **The MCP tools do not scope themselves** — pass the same scope
-  explicitly (see [Scopes](#scopes)).
+  explicitly.
+
+## Scopes
+
+The scope is derived from the git top-level directory's basename (or the cwd
+basename outside git). It is sanitized to letters, numbers, `.`, `_`, and `-`,
+up to 10 `/`-separated components. A linked worktree resolves to its own
+top-level directory, so a differently named worktree gets its own scope; there
+is no main-checkout aliasing. The MCP tools do not scope themselves — pass the
+same scope explicitly.
+
+The scope can be overridden with the `pali.scope` setting or `PALI_SCOPE`
+environment variable.
+
 - **Session start** uses `limit: 6`, a 15 s budget, no distance cut, and a
   6,000-character block. It remembers what it injected for that session.
 - **Per prompt** skips prompts shorter than 8 characters and prompts starting
@@ -289,7 +302,7 @@ Run `pali serve --help` for the authoritative list. The common ones:
 | Flag | Env | Default |
 | --- | --- | --- |
 | `--repo-path` | `PALI_REPO_PATH` | `~/.memory-mcp` |
-| `--config` | `PALI_CONFIG` | platform config dir (see [Per-scope remotes](#per-scope-remotes)) |
+| `--config` | `PALI_CONFIG` | platform config dir (see Per-scope remotes) |
 | `--remote-url` | `PALI_REMOTE_URL` | unset (local-only) |
 | `--branch` | `PALI_BRANCH` | `main` |
 | `--require-remote-sync` | `PALI_REQUIRE_REMOTE_SYNC` | `false` |

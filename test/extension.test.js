@@ -829,7 +829,47 @@ function makeInstallUi(storage, { token = "test-token", modelAnswer = "Later" } 
   };
 }
 
-test("installLatest downloads the release zip and extracts the binary", async () => {
+const latestReleaseApiUrl = "https://api.github.com/repos/cderivan/memory-mcp/releases/latest";
+
+function latestReleaseResponse(name, assetUrl) {
+  return new Response(
+    JSON.stringify({ tag_name: "v1.0.0", assets: [{ name, url: assetUrl }] }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  );
+}
+
+test("installLatest reports a latest-release API failure instead of a missing asset", async () => {
+  const storage = join(tmpdir(), `pali-test-release-api-error-${Date.now()}`);
+  await mkdir(storage, { recursive: true });
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (url) => {
+    requests.push(String(url));
+    return new Response("temporarily unavailable", {
+      status: 503,
+      statusText: "Service Unavailable",
+    });
+  };
+  const ui = makeInstallUi(storage);
+  try {
+    await assert.rejects(
+      () => installLatest(ui),
+      (error) => {
+        assert.match(error.message, /release API lookup failed/i);
+        assert.match(error.message, /503/);
+        assert.doesNotMatch(error.message, /Could not find the .* asset/);
+        return true;
+      },
+      "a failed release lookup must not be reported as a missing asset",
+    );
+    assert.deepEqual(requests, [latestReleaseApiUrl]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await rm(storage, { recursive: true, force: true });
+  }
+});
+
+test("installLatest downloads the release asset through the authenticated API and completes setup", async () => {
   const storage = join(tmpdir(), `pali-test-dl-${Date.now()}`);
   await mkdir(storage, { recursive: true });
   const target = require("../out/utils/install_pali").getReleaseTarget(
@@ -840,11 +880,17 @@ test("installLatest downloads the release zip and extracts the binary", async ()
   const binName = binaryName();
   const payload = Buffer.from("#!/bin/sh\necho pali 1.0.0\n");
   const zip = zipArchive([{ name: binName, data: payload }]);
+  const assetUrl = "https://api.github.com/repos/cderivan/memory-mcp/releases/assets/711664240";
 
   const requests = [];
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
-    requests.push({ url: String(url), headers: init?.headers ?? {} });
+    const href = String(url);
+    requests.push({ url: href, headers: init?.headers ?? {} });
+    if (href === latestReleaseApiUrl) {
+      return latestReleaseResponse(releaseAssetName(target), assetUrl);
+    }
+    assert.equal(href, assetUrl, "binary bytes are fetched from the API asset URL");
     return new Response(zip, {
       status: 200,
       headers: { "content-length": String(zip.length) },
@@ -854,12 +900,16 @@ test("installLatest downloads the release zip and extracts the binary", async ()
   try {
     await installLatest(ui);
 
-    assert.equal(requests.length, 1, "one download for the binary, none for the model");
+    assert.equal(requests.length, 2, "release lookup and one binary download; no model download");
     assert.equal(
       requests[0].url,
-      `https://github.com/cderivan/memory-mcp/releases/latest/download/${releaseAssetName(target)}`,
+      latestReleaseApiUrl,
+      "the matching release asset is looked up through the GitHub API",
     );
     assert.equal(requests[0].headers.Authorization, "Bearer test-token");
+    assert.equal(requests[1].url, assetUrl);
+    assert.equal(requests[1].headers.Authorization, "Bearer test-token");
+    assert.equal(requests[1].headers.Accept, "application/octet-stream");
 
     const installed = join(storage, binName);
     assert.deepEqual(await readFile(installed), payload);
@@ -874,8 +924,10 @@ test("installLatest downloads the release zip and extracts the binary", async ()
     );
     const maintenance = JSON.parse(await readFile(join(storage, "maintenance.json"), "utf8"));
     assert.equal(maintenance.checkUpdates, true);
-    assert.ok(maintenance.installedVersion, "the version is recorded for update checks");
+    assert.equal(maintenance.installedVersion, "1.0.0", "the binary version is recorded for update checks");
     assert.equal(ui.calls.reloads.length, 1, "the server restart is requested after install");
+    assert.equal(ui.paliPath, installed, "the installed path is set for the UI");
+    assert.equal(ui.calls.prompts.length, 1, "model setup is offered after installing the binary");
     assert.ok(ui.calls.progress.length > 0, "download progress is reported");
   } finally {
     globalThis.fetch = originalFetch;
@@ -883,11 +935,9 @@ test("installLatest downloads the release zip and extracts the binary", async ()
   }
 });
 
-test("a 404 from the browser download URL retries through the release asset API", async () => {
-  // Regression: `github.com/.../releases/download/...` answers 404 for a
-  // private repository even with a valid token. The release asset API is the
-  // only token-authenticated download path, so a 404 must retry there rather
-  // than surfacing a failed install.
+test("installLatest requests the release asset directly through the API", async () => {
+  // Regression: private repositories require the token-authenticated asset API;
+  // a request to the browser download URL cannot carry the credential.
   const storage = join(tmpdir(), `pali-test-dl-api-${Date.now()}`);
   await mkdir(storage, { recursive: true });
   const target = require("../out/utils/install_pali").getReleaseTarget(
@@ -898,7 +948,6 @@ test("a 404 from the browser download URL retries through the release asset API"
   const name = releaseAssetName(target);
   const payload = Buffer.from("#!/bin/sh\necho pali 1.0.0\n");
   const zip = zipArchive([{ name: binaryName(), data: payload }]);
-  const browserUrl = `https://github.com/cderivan/memory-mcp/releases/latest/download/${name}`;
   const assetUrl = "https://api.github.com/repos/cderivan/memory-mcp/releases/assets/711664240";
 
   const requests = [];
@@ -906,18 +955,8 @@ test("a 404 from the browser download URL retries through the release asset API"
   globalThis.fetch = async (url, init) => {
     const href = String(url);
     requests.push({ url: href, headers: init?.headers ?? {} });
-    if (href === browserUrl) {
-      return new Response("Not Found", {
-        status: 404,
-        statusText: "Not Found",
-        headers: { "content-type": "text/plain" },
-      });
-    }
-    if (href === "https://api.github.com/repos/cderivan/memory-mcp/releases/latest") {
-      return new Response(JSON.stringify({ tag_name: "0.0.1", assets: [{ name, url: assetUrl }] }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
+    if (href === latestReleaseApiUrl) {
+      return latestReleaseResponse(name, assetUrl);
     }
     if (href === assetUrl) {
       return new Response(zip, {
@@ -933,21 +972,17 @@ test("a 404 from the browser download URL retries through the release asset API"
 
     assert.deepEqual(
       requests.map((request) => request.url),
-      [
-        browserUrl,
-        "https://api.github.com/repos/cderivan/memory-mcp/releases/latest",
-        assetUrl,
-      ],
-      "the browser URL 404 is followed by the release lookup and the asset download",
+      [latestReleaseApiUrl, assetUrl],
+      "the release lookup is followed directly by the asset download",
     );
-    assert.equal(requests[2].headers.Authorization, "Bearer test-token");
+    assert.equal(requests[1].headers.Authorization, "Bearer test-token");
     assert.equal(
-      requests[2].headers.Accept,
+      requests[1].headers.Accept,
       "application/octet-stream",
       "the asset endpoint returns JSON without the octet-stream media type",
     );
     assert.deepEqual(await readFile(join(storage, binaryName())), payload);
-    assert.equal(ui.calls.errors.length, 0, "the retry must not be reported as a failure");
+    assert.equal(ui.calls.errors.length, 0, "the direct API download must not be reported as a failure");
     assert.equal(ui.calls.reloads.length, 1, "the server restart is requested after install");
   } finally {
     globalThis.fetch = originalFetch;
@@ -964,9 +999,14 @@ test("installLatest extracts the bare-triple binary from the macOS zip", async (
   const payload = Buffer.from("universal-binary-bytes");
   const zip = zipArchive([{ name: "aarch64-apple-darwin", data: payload }]);
 
+  const assetUrl = "https://api.github.com/repos/cderivan/memory-mcp/releases/assets/711664240";
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () =>
-    new Response(zip, { status: 200, headers: { "content-length": String(zip.length) } });
+  globalThis.fetch = async (url) => {
+    if (String(url) === latestReleaseApiUrl) {
+      return latestReleaseResponse(releaseAssetName("aarch64-apple-darwin"), assetUrl);
+    }
+    return new Response(zip, { status: 200, headers: { "content-length": String(zip.length) } });
+  };
   const ui = makeInstallUi(storage);
   try {
     await installLatest(ui);
@@ -995,9 +1035,15 @@ test("a 401 during the binary download points at the token command", async () =>
   const storage = join(tmpdir(), `pali-test-dl-401-${Date.now()}`);
   await mkdir(storage, { recursive: true });
 
+  const target = getReleaseTarget(process.platform, process.arch);
+  const assetUrl = "https://api.github.com/repos/cderivan/memory-mcp/releases/assets/711664240";
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () =>
-    new Response("Unauthorized", { status: 401, statusText: "Unauthorized" });
+  globalThis.fetch = async (url) => {
+    if (String(url) === latestReleaseApiUrl) {
+      return latestReleaseResponse(releaseAssetName(target), assetUrl);
+    }
+    return new Response("Unauthorized", { status: 401, statusText: "Unauthorized" });
+  };
   const ui = makeInstallUi(storage);
   try {
     await assert.rejects(
@@ -1031,8 +1077,14 @@ test("a failed download quotes a truncated body snippet in the error", async () 
     "</body></html>";
 
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () =>
-    new Response(body, { status: 403, statusText: "Forbidden" });
+  const target = getReleaseTarget(process.platform, process.arch);
+  const assetUrl = "https://api.github.com/repos/cderivan/memory-mcp/releases/assets/711664240";
+  globalThis.fetch = async (url) => {
+    if (String(url) === latestReleaseApiUrl) {
+      return latestReleaseResponse(releaseAssetName(target), assetUrl);
+    }
+    return new Response(body, { status: 403, statusText: "Forbidden" });
+  };
   const ui = makeInstallUi(storage);
   try {
     await assert.rejects(
@@ -1066,11 +1118,16 @@ test("a download retried after a failure still completes", async () => {
   const payload = Buffer.from("retried-binary-bytes");
   const zip = zipArchive([{ name: binaryName(), data: payload }]);
 
-  let attempt = 0;
+  let downloadAttempts = 0;
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () => {
-    attempt += 1;
-    if (attempt === 1) {
+  const target = getReleaseTarget(process.platform, process.arch);
+  const assetUrl = "https://api.github.com/repos/cderivan/memory-mcp/releases/assets/711664240";
+  globalThis.fetch = async (url) => {
+    if (String(url) === latestReleaseApiUrl) {
+      return latestReleaseResponse(releaseAssetName(target), assetUrl);
+    }
+    downloadAttempts += 1;
+    if (downloadAttempts === 1) {
       return new Response("<html><body>temporarily unavailable</body></html>", {
         status: 503,
         statusText: "Service Unavailable",
@@ -1095,7 +1152,7 @@ test("a download retried after a failure still completes", async () => {
 
     await installLatest(ui);
 
-    assert.equal(attempt, 2, "the retry downloads again rather than reusing the failed body");
+    assert.equal(downloadAttempts, 2, "the retry downloads again rather than reusing the failed body");
     assert.deepEqual(await readFile(join(storage, binaryName())), payload);
   } finally {
     globalThis.fetch = originalFetch;
@@ -1114,11 +1171,17 @@ test("a 200 login page is not saved as the binary", async () => {
     '<!DOCTYPE html>\n<html lang="en">\n<head><title>Initiating SAML single sign-on</title></head>\n<body></body>\n</html>\n';
 
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () =>
-    new Response(html, {
+  const target = getReleaseTarget(process.platform, process.arch);
+  const assetUrl = "https://api.github.com/repos/cderivan/memory-mcp/releases/assets/711664240";
+  globalThis.fetch = async (url) => {
+    if (String(url) === latestReleaseApiUrl) {
+      return latestReleaseResponse(releaseAssetName(target), assetUrl);
+    }
+    return new Response(html, {
       status: 200,
       headers: { "content-type": "text/html; charset=utf-8" },
     });
+  };
   const ui = makeInstallUi(storage);
   try {
     await assert.rejects(
