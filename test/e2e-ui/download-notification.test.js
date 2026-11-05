@@ -11,10 +11,12 @@
 // which resolve to stale elements on VS Code 1.144 and throw before returning
 // any notification.
 //
-// The download goes to the project's model archive. When that is unreachable
-// (404, no token, offline) the extension reports the failure; the test accepts
-// a reported failure or a completed install, because both prove the click
-// reached the download path instead of being a no-op.
+// The download goes to the project's model archive. The suite probes that URL
+// before clicking: when it is reachable the click must end with the model
+// installed, and a reported download failure fails the test. When it is
+// unreachable (404, no token, offline), the extension's reported failure is the
+// expected terminal state and proves the click reached the download path
+// instead of being a no-op.
 
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -37,6 +39,17 @@ const OFFER = new RegExp(`The ${MODEL_DIR_NAME} embedding model`);
 
 /** A finished flow: either the model install or its reported failure. */
 const TERMINAL = /Could not download|pali installed at/;
+
+/**
+ * The archive `installModel` downloads (`modelZipUrl` in
+ * `src/utils/install_pali.ts`): raw content at the `main` ref. Keep the two in
+ * sync; the manifest below is imported, this URL is not build output.
+ */
+const MODEL_ARCHIVE_URL =
+  "https://raw.githubusercontent.com/cderivan/memory-mcp/main/models/bge-small-en-v1.5.zip";
+
+/** The archive is roughly 130 MB, so a stalled probe must not hold the run. */
+const ARCHIVE_PROBE_TIMEOUT = 30_000;
 
 /**
  * The unusable `pali.modelPath` report seeded by scripts/e2e-ui-fixtures.mjs:
@@ -75,6 +88,37 @@ function modelFilesInstalled() {
 
 async function bodyText(driver) {
   return String(await driver.executeScript("return document.body.innerText"));
+}
+
+/**
+ * True when the model archive can actually be downloaded from this machine.
+ *
+ * The probe is unauthenticated on purpose: this suite stores no token, so a
+ * private archive answers 404 here exactly as it would for the extension. A
+ * range request asks for the first four bytes, which must be the ZIP magic; a
+ * 200 that is an SSO login page is therefore not "reachable" either. The body
+ * is cancelled after the first chunk, so the probe never downloads the archive.
+ */
+async function modelArchiveReachable() {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ARCHIVE_PROBE_TIMEOUT);
+  try {
+    const response = await fetch(MODEL_ARCHIVE_URL, {
+      headers: { Range: "bytes=0-3" },
+      redirect: "follow",
+      signal: controller.signal,
+    });
+    if (!response.ok || !response.body) return false;
+    const reader = response.body.getReader();
+    const { value } = await reader.read();
+    await reader.cancel().catch(() => {});
+    const head = Buffer.from(value ?? []);
+    return head.length >= 4 && head.readUInt32BE(0) === 0x504b0304;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
@@ -162,6 +206,13 @@ describe("model install flow from the notification", () => {
 
     await button.click();
 
+    // Reachability decides what a terminal state means, so it is sampled just
+    // before the click the extension's download will follow.
+    const archiveReachable = await modelArchiveReachable();
+    console.log(
+      `model archive reachable: ${archiveReachable ? "yes" : "no"} (${MODEL_ARCHIVE_URL})`,
+    );
+
     const deadline = Date.now() + TERMINAL_TIMEOUT;
     while (Date.now() < deadline) {
       if (modelFilesInstalled()) {
@@ -170,6 +221,11 @@ describe("model install flow from the notification", () => {
       }
       const match = TERMINAL.exec(await bodyText(driver));
       if (match) {
+        assert.ok(
+          !archiveReachable || !/^Could not download/.test(match[0]),
+          "the model archive is reachable, so the download must succeed, " +
+            `but the extension reported: ${match[0]}`,
+        );
         console.log(`model install flow ended with: ${match[0]}`);
         return;
       }
@@ -177,8 +233,11 @@ describe("model install flow from the notification", () => {
     }
 
     assert.fail(
-      "clicking Download now never reached a terminal state; " +
-        `workbench text: ${(await bodyText(driver)).slice(0, 800)}`,
+      archiveReachable
+        ? `the model archive is reachable but ${MODEL_DIR_NAME} was never installed; ` +
+            `workbench text: ${(await bodyText(driver)).slice(0, 800)}`
+        : "clicking Download now never reached a terminal state; " +
+            `workbench text: ${(await bodyText(driver)).slice(0, 800)}`,
     );
   });
 });

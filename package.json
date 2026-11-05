@@ -30,7 +30,7 @@
     "prepare": "npm run compile && npm run icon",
     "postinstall": "node scripts/patch-url-parse.js",
     "vscode:uninstall": "node ./out/uninstall.js",
-    "test": "node --test test/extension.test.js test/extension.activation.test.js test/skill.test.js test/instructions.test.js",
+    "test": "node --test test/extension.test.js test/extension.activation.test.js test/skill.test.js test/instructions.test.js test/load-env.test.mjs",
     "pkginstall": "code --install-extension pali-memory-0.3.0.vsix",
     "pkguninstall": "code --uninstall-extension cderivan.pali-memory",
     "reinstall": "npm run pkguninstall & npm run pkginstall",

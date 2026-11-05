@@ -12,6 +12,15 @@ import modelManifest from "../model-manifest.json";
 // release, so a download needs no version lookup. Downloads carry the HTTPS
 // token the user stored via `pali.setToken` as a Bearer credential; a private
 // repository needs it, a public one ignores it.
+//
+// A token cannot authenticate the browser download URL
+// (`github.com/<owner>/<repo>/releases/download/...`): a private repository
+// answers 404 even for a valid token. The release asset API is the
+// token-authenticated path, so `installLatest` retries through it when the
+// browser URL reports 404. Raw files have the same problem on
+// `github.com/<repo>/raw/...`, where the cross-origin redirect drops the
+// Authorization header, so the model archive is fetched from
+// `raw.githubusercontent.com` directly.
 const GITHUB_BASE_URL = "https://github.com";
 /**
  * REST host. It is not `${GITHUB_BASE_URL}/api/v3` (GitHub Enterprise's
@@ -418,18 +427,46 @@ function authHeaders(token?: string | null): Record<string, string> {
   return trimmed ? { Authorization: `Bearer ${trimmed}` } : {};
 }
 
-/** Read the newest release tag from the GitHub Enterprise API. */
-async function fetchLatestVersion(token?: string | null): Promise<string | null> {
+/** One downloadable asset on a release, as the REST API reports it. */
+interface ReleaseAsset {
+  name?: string;
+  url?: string;
+}
+
+/** The release fields this module reads. */
+interface ReleaseInfo {
+  tag_name?: string;
+  assets?: ReleaseAsset[];
+}
+
+/** Read the newest release, or null when the API is unavailable. */
+async function fetchLatestRelease(token?: string | null): Promise<ReleaseInfo | null> {
   try {
     const response = await fetch(`${PROJECT_API_URL}/releases/latest`, {
       headers: authHeaders(token),
     });
     if (!response.ok) return null;
-    const release = (await response.json()) as { tag_name?: string };
-    return release.tag_name?.trim() || null;
+    return (await response.json()) as ReleaseInfo;
   } catch {
     return null;
   }
+}
+
+/** Read the newest release tag from the GitHub REST API. */
+async function fetchLatestVersion(token?: string | null): Promise<string | null> {
+  const release = await fetchLatestRelease(token);
+  return release?.tag_name?.trim() || null;
+}
+
+/**
+ * API URL of the named asset on the newest release, or null when the release
+ * does not carry it. This is the documented download for a private
+ * repository: the browser URL does not accept a token.
+ */
+async function releaseAssetUrl(name: string, token?: string | null): Promise<string | null> {
+  const release = await fetchLatestRelease(token);
+  const asset = release?.assets?.find((entry) => entry.name === name && entry.url);
+  return asset?.url ?? null;
 }
 
 /** Read the full response body into memory, reporting byte progress. */
@@ -481,6 +518,17 @@ function validateArchiveBytes(bytes: Buffer, dest: string): void {
   );
 }
 
+/** A download the server answered with a non-success status. */
+class DownloadError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "DownloadError";
+  }
+}
+
 /** Bytes of a failed response body kept for the error message. */
 const ERROR_SNIPPET_BYTES = 200;
 
@@ -526,18 +574,23 @@ async function streamToFile(
 ): Promise<void> {
   if (!response.ok || !response.body) {
     const base = `Server returned ${response.status} ${response.statusText} for ${response.url}`;
-    // A private repo answers 401/403 when no (or a bad) token was supplied.
-    const hint =
-      response.status === 401 || response.status === 403
-        ? '\nRun "Pali: Set HTTPS Token" and store a token with repo read access.'
-        : "";
+    // A private repo answers 401/403 when no (or a bad) token was supplied;
+    // the browser download URL hides the repository behind a 404 instead.
+    let hint = "";
+    if (response.status === 401 || response.status === 403) {
+      hint = '\nRun "Pali: Set HTTPS Token" and store a token with repo read access.';
+    } else if (response.status === 404) {
+      hint =
+        "\nIf this repository is private, its downloads need a token with " +
+        'repo read access ("Pali: Set HTTPS Token").';
+    }
     const snippet = await readErrorSnippet(response);
     const detail = snippet ? `\nServer said: ${snippet}` : "";
     log.error(
       `${response.status} ${response.statusText} for ${response.url}` +
         (snippet ? `: ${snippet}` : ""),
     );
-    throw new Error(base + hint + detail);
+    throw new DownloadError(base + hint + detail, response.status);
   }
 
   const bytes = await readBody(response, onBytes);
@@ -554,11 +607,14 @@ async function downloadWithProgress(
   dest: string,
   onProgress: (fraction: number) => void,
   token?: string | null,
+  extraHeaders: Record<string, string> = {},
 ): Promise<void> {
   log.info(`downloading ${url}`);
   const tokenPresent = Boolean(authHeaders(token).Authorization);
   log.info(`authenticating with Bearer token: ${tokenPresent ? "yes" : "no"}`);
-  const response = await fetch(url, { headers: authHeaders(token) });
+  const response = await fetch(url, {
+    headers: { ...authHeaders(token), ...extraHeaders },
+  });
   log.info(
     `server answered ${response.status} ${response.statusText} ` +
       `(content-type: ${response.headers.get("content-type") || "unknown"})`,
@@ -573,9 +629,15 @@ async function downloadWithProgress(
   );
 }
 
-/** Raw URL for the model archive at the tracked ref (GitHub Enterprise). */
+/**
+ * Raw URL for the model archive at the tracked ref.
+ *
+ * `raw.githubusercontent.com` rather than `github.com/<repo>/raw/...`: the
+ * latter redirects, and the Authorization header is dropped on the
+ * cross-origin hop, so a private repository could never authenticate it.
+ */
 function modelZipUrl(): string {
-  return `${GITHUB_BASE_URL}/${PROJECT_PATH}/raw/${MODEL_REF}/models/${MODEL_DIR_NAME}.zip`;
+  return `https://raw.githubusercontent.com/${PROJECT_PATH}/${MODEL_REF}/models/${MODEL_DIR_NAME}.zip`;
 }
 
 /**
@@ -875,12 +937,27 @@ export async function installLatest(ui: UI): Promise<void> {
   await fs.mkdir(ui.storagePath, { recursive: true });
 
   await ui.progress(`Installing pali (${target})...`, null, async (reportProgress) => {
+    const name = releaseAssetName(target);
     const url = releaseUrl(target);
-    const archivePath = path.join(ui.storagePath, releaseAssetName(target));
+    const archivePath = path.join(ui.storagePath, name);
     const dest = path.join(ui.storagePath, binaryName());
-    log.info(`release asset: ${releaseAssetName(target)} from ${url}`);
+    const token = await ui.getToken?.();
+    log.info(`release asset: ${name} from ${url}`);
     try {
-      await downloadWithProgress(url, archivePath, reportProgress, await ui.getToken?.());
+      try {
+        await downloadWithProgress(url, archivePath, reportProgress, token);
+      } catch (error) {
+        // A private repository answers 404 on the browser URL even for a valid
+        // token, so retry the documented token-authenticated path before
+        // reporting the download as failed.
+        if (!(error instanceof DownloadError) || error.status !== 404) throw error;
+        const assetUrl = await releaseAssetUrl(name, token);
+        if (!assetUrl) throw error;
+        log.info(`retrying ${name} through the release asset API`);
+        await downloadWithProgress(assetUrl, archivePath, reportProgress, token, {
+          Accept: "application/octet-stream",
+        });
+      }
       log.info(`extracting ${binaryName()} from ${path.basename(archivePath)}...`);
       await extractBinaryFromArchive(await fs.readFile(archivePath), ui.storagePath, target);
       log.success(`binary extracted to ${dest}`);

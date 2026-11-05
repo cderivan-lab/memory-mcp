@@ -60,6 +60,10 @@ node_modules/**/LICENSE*
 .DS_Store
 test-resources/**
 .e2e-ui/**
+# Local environment file, if one exists in a developer checkout, and its
+# tracked template: neither is extension content.
+.env
+.env.example
 node_modules/**
 .pali/**
 coverage/**

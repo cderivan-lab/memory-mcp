@@ -461,18 +461,18 @@ test("a missing binary is offered for download even when update checks are off",
     storagePath: storage,
     extensionPath: join(tmpdir(), `pali-test-ext-${Date.now()}`),
     error: (message) => assert.fail(`unexpected error: ${message}`),
-    info: () => {},
-    command: () => {},
+    info: () => { },
+    command: () => { },
     choose: async (prompt) => {
       prompts.push(prompt);
       return "Later";
     },
     slow: (_, promise) => promise,
-    progress: (_, __, body) => body(() => {}),
+    progress: (_, __, body) => body(() => { }),
     localize: (message) => message,
     shouldReuse: async () => undefined,
-    promptReload: async () => {},
-    promptUpdate: async () => {},
+    promptReload: async () => { },
+    promptUpdate: async () => { },
   };
   try {
     const result = await prepare(ui, false);
@@ -506,18 +506,18 @@ test("a usable pali.modelPath suppresses the model download offer", async () => 
     extensionPath: join(tmpdir(), `pali-test-ext-${suffix}`),
     modelPath: configured,
     error: (message) => assert.fail(`unexpected error: ${message}`),
-    info: () => {},
-    command: () => {},
+    info: () => { },
+    command: () => { },
     choose: async (prompt) => {
       prompts.push(prompt);
       return "Later";
     },
     slow: (_, promise) => promise,
-    progress: (_, __, body) => body(() => {}),
+    progress: (_, __, body) => body(() => { }),
     localize: (message) => message,
     shouldReuse: async () => undefined,
-    promptReload: async () => {},
-    promptUpdate: async () => {},
+    promptReload: async () => { },
+    promptUpdate: async () => { },
   };
 
   try {
@@ -814,7 +814,7 @@ function makeInstallUi(storage, { token = "test-token", modelAnswer = "Later" } 
     getToken: async () => token,
     error: (message) => calls.errors.push(message),
     info: (message) => calls.infos.push(message),
-    command: () => {},
+    command: () => { },
     choose: async (prompt) => {
       calls.prompts.push(prompt);
       return modelAnswer;
@@ -824,7 +824,7 @@ function makeInstallUi(storage, { token = "test-token", modelAnswer = "Later" } 
     localize: (message) => message,
     shouldReuse: async () => undefined,
     promptReload: async (message) => calls.reloads.push(message),
-    promptUpdate: async () => {},
+    promptUpdate: async () => { },
     calls,
   };
 }
@@ -877,6 +877,78 @@ test("installLatest downloads the release zip and extracts the binary", async ()
     assert.ok(maintenance.installedVersion, "the version is recorded for update checks");
     assert.equal(ui.calls.reloads.length, 1, "the server restart is requested after install");
     assert.ok(ui.calls.progress.length > 0, "download progress is reported");
+  } finally {
+    globalThis.fetch = originalFetch;
+    await rm(storage, { recursive: true, force: true });
+  }
+});
+
+test("a 404 from the browser download URL retries through the release asset API", async () => {
+  // Regression: `github.com/.../releases/download/...` answers 404 for a
+  // private repository even with a valid token. The release asset API is the
+  // only token-authenticated download path, so a 404 must retry there rather
+  // than surfacing a failed install.
+  const storage = join(tmpdir(), `pali-test-dl-api-${Date.now()}`);
+  await mkdir(storage, { recursive: true });
+  const target = require("../out/utils/install_pali").getReleaseTarget(
+    process.platform,
+    process.arch,
+  );
+  assert.ok(target, "tests must run on a platform with a prebuilt binary");
+  const name = releaseAssetName(target);
+  const payload = Buffer.from("#!/bin/sh\necho pali 1.0.0\n");
+  const zip = zipArchive([{ name: binaryName(), data: payload }]);
+  const browserUrl = `https://github.com/cderivan/memory-mcp/releases/latest/download/${name}`;
+  const assetUrl = "https://api.github.com/repos/cderivan/memory-mcp/releases/assets/711664240";
+
+  const requests = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const href = String(url);
+    requests.push({ url: href, headers: init?.headers ?? {} });
+    if (href === browserUrl) {
+      return new Response("Not Found", {
+        status: 404,
+        statusText: "Not Found",
+        headers: { "content-type": "text/plain" },
+      });
+    }
+    if (href === "https://api.github.com/repos/cderivan/memory-mcp/releases/latest") {
+      return new Response(JSON.stringify({ tag_name: "0.0.1", assets: [{ name, url: assetUrl }] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (href === assetUrl) {
+      return new Response(zip, {
+        status: 200,
+        headers: { "content-length": String(zip.length) },
+      });
+    }
+    return new Response("unexpected request", { status: 500 });
+  };
+  const ui = makeInstallUi(storage);
+  try {
+    await installLatest(ui);
+
+    assert.deepEqual(
+      requests.map((request) => request.url),
+      [
+        browserUrl,
+        "https://api.github.com/repos/cderivan/memory-mcp/releases/latest",
+        assetUrl,
+      ],
+      "the browser URL 404 is followed by the release lookup and the asset download",
+    );
+    assert.equal(requests[2].headers.Authorization, "Bearer test-token");
+    assert.equal(
+      requests[2].headers.Accept,
+      "application/octet-stream",
+      "the asset endpoint returns JSON without the octet-stream media type",
+    );
+    assert.deepEqual(await readFile(join(storage, binaryName())), payload);
+    assert.equal(ui.calls.errors.length, 0, "the retry must not be reported as a failure");
+    assert.equal(ui.calls.reloads.length, 1, "the server restart is requested after install");
   } finally {
     globalThis.fetch = originalFetch;
     await rm(storage, { recursive: true, force: true });
@@ -1152,7 +1224,8 @@ test("installModel downloads and extracts the model zip", async () => {
     assert.equal(requests.length, 1);
     assert.equal(
       requests[0].url,
-      "https://github.com/cderivan/memory-mcp/raw/main/models/bge-small-en-v1.5.zip",
+      "https://raw.githubusercontent.com/cderivan/memory-mcp/main/models/bge-small-en-v1.5.zip",
+      "the raw host avoids the redirect that drops the Authorization header",
     );
     assert.equal(requests[0].headers.Authorization, "Bearer test-token");
     assert.equal(
@@ -1232,18 +1305,18 @@ test("the MCP provider publishes nothing when no binary resolves", async () => {
     "pali-memory.instructions.md",
   );
 
-  const disposable = () => ({ dispose() {} });
+  const disposable = () => ({ dispose() { } });
   let provider;
   const fakeVscode = {
     EventEmitter: class {
       get event() {
         return () => disposable();
       }
-      fire() {}
-      dispose() {}
+      fire() { }
+      dispose() { }
     },
-    commands: { registerCommand: () => disposable(), executeCommand: async () => {} },
-    env: { openExternal() {} },
+    commands: { registerCommand: () => disposable(), executeCommand: async () => { } },
+    env: { openExternal() { } },
     lm: {
       registerMcpServerDefinitionProvider: (_id, definitionProvider) => {
         provider = definitionProvider;
@@ -1252,18 +1325,18 @@ test("the MCP provider publishes nothing when no binary resolves", async () => {
     },
     window: {
       ProgressLocation: { Notification: 1 },
-      createOutputChannel: () => ({ appendLine() {}, dispose() {} }),
-      showErrorMessage() {},
+      createOutputChannel: () => ({ appendLine() { }, dispose() { } }),
+      showErrorMessage() { },
       showInformationMessage: async () => undefined,
       showInputBox: async () => undefined,
-      showWarningMessage() {},
+      showWarningMessage() { },
       withProgress: async (_options, task) =>
-        task({ report() {} }, { onCancellationRequested() {} }),
+        task({ report() { } }, { onCancellationRequested() { } }),
     },
     workspace: {
       getConfiguration: () => ({
         get: (key) => (key === "path" ? "/nonexistent/pali-binary" : undefined),
-        update: async () => {},
+        update: async () => { },
       }),
       onDidChangeConfiguration: () => disposable(),
       workspaceFolders: undefined,
@@ -1281,7 +1354,7 @@ test("the MCP provider publishes nothing when no binary resolves", async () => {
     extension.activate({
       extensionPath: extensionRoot,
       globalStorageUri: { fsPath: storage },
-      secrets: { delete: async () => {}, get: async () => undefined, store: async () => {} },
+      secrets: { delete: async () => { }, get: async () => undefined, store: async () => { } },
       subscriptions: [],
     });
 
