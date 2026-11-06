@@ -1,8 +1,30 @@
 {
   "name": "pali-memory",
   "displayName": "Pali Memory",
-  "version": "0.3.0",
   "description": "Registers the Pali memory MCP server and installs its GitHub Copilot hooks.",
+  "version": "1.0.0",
+  "publisher": "cderivan",
+  "license": "MIT",
+  "icon": "images/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cderivan/memory-mcp"
+  },
+  "bugs": {
+    "url": "https://github.com/cderivan/copilot-agent-manager/issues"
+  },
+  "homepage": "https://github.com/cderivan/copilot-agent-manager#readme",
+  "galleryBanner": {
+    "color": "#1F2430",
+    "theme": "dark"
+  },
+  "engines": {
+    "vscode": "^1.145.0"
+  },
+  "categories": [
+    "AI",
+    "Other"
+  ],
   "keywords": [
     "ai",
     "copilot",
@@ -11,19 +33,16 @@
     "model context protocol",
     "pali"
   ],
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/cderivan/memory-mcp"
-  },
-  "publisher": "cderivan",
   "main": "./out/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "scripts": {
     "esbuild-base": "esbuild ./src/extension.ts ./src/uninstall.ts --bundle --outdir=out --external:vscode --format=cjs --platform=node",
     "build:binary": "node scripts/build-binary.mjs",
     "build": "npm run build:binary && npm run compile",
     "icon": "node scripts/make-icon.js",
-    "package": "vsce package --baseContentUrl https://github.com/cderivan/memory-mcp/src/branch/main --baseImagesUrl https://github.com/cderivan/memory-mcp/raw/branch/main",
+    "package": "vsce package",
     "compile": "npm run -S esbuild-base -- --sourcemap",
     "compile:tests": "esbuild ./src/extension.ts ./src/uninstall.ts ./src/utils/lib.ts ./src/utils/instructions.ts ./src/utils/install_pali.ts ./src/utils/logger.ts --bundle --outdir=out --external:vscode --format=cjs --platform=node --sourcemap",
     "pretest": "npm run -S compile:tests",
@@ -31,7 +50,7 @@
     "postinstall": "node scripts/patch-url-parse.js",
     "vscode:uninstall": "node ./out/uninstall.js",
     "test": "node --test test/extension.test.js test/extension.activation.test.js test/skill.test.js test/instructions.test.js test/load-env.test.mjs",
-    "pkginstall": "code --install-extension pali-memory-0.3.0.vsix",
+    "pkginstall": "code --install-extension pali-memory-1.0.0.vsix",
     "pkguninstall": "code --uninstall-extension cderivan.pali-memory",
     "reinstall": "npm run pkguninstall & npm run pkginstall",
     "test:e2e": "vscode-test",
@@ -167,20 +186,5 @@
         "label": "Pali Memory"
       }
     ]
-  },
-  "activationEvents": [
-    "onStartupFinished"
-  ],
-  "icon": "images/icon.png",
-  "galleryBanner": {
-    "color": "#1F2430",
-    "theme": "dark"
-  },
-  "engines": {
-    "vscode": "^1.145.0"
-  },
-  "allowScripts": {
-    "@vscode/vsce-sign@2.1.0": true,
-    "esbuild@0.28.2": true
   }
 }
