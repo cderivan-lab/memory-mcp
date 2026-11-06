@@ -1,0 +1,15 @@
+{
+    "timeout": 60000,
+    "diff": true,
+    "spec": [
+        "test/**/*.test.js",
+        "test/**/*.test.mjs"
+    ],
+    "exclude": [
+        "test/e2e/**/*.test.js",
+        "test/e2e-ui/**/*.test.js"
+    ],
+    "recursive": true,
+    "ui": "bdd",
+    "colors": true
+}
