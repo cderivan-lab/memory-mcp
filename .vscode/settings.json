@@ -6,5 +6,8 @@
         "out": true,
         "target": true
     },
-    "js/ts.tsc.autoDetect": "off"
+    "js/ts.tsc.autoDetect": "off",
+    "[rust]": {
+        "editor.defaultFormatter": "rust-lang.rust-analyzer"
+    }
 }
