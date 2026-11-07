@@ -10,6 +10,14 @@ on:
           toolchain can disagree with the author's on code nobody edited.
         type: boolean
         default: false
+    inputs:
+      fmt-check:
+        description: >-
+          Run the cargo fmt --check gate. Off by default: rustfmt's
+          line-breaking changes between releases, so the runner's stable
+          toolchain can disagree with the author's on code nobody edited.
+        type: boolean
+        default: false
   push:
     branches: [main]
   pull_request:
@@ -67,6 +75,11 @@ jobs:
   # workflow_dispatch input `fmt-check`, or permanently with the repository
   # variable FMT_CHECK=true. The pre-commit hook still runs `cargo fmt --check`
   # against the author's own toolchain.
+  # Formatting is advisory. This job always runs (so `build`'s `needs` stays
+  # satisfiable) but the check itself is opt-in: enable it per run with
+  # workflow_dispatch input `fmt-check`, or permanently with the repository
+  # variable FMT_CHECK=true. The pre-commit hook still runs `cargo fmt --check`
+  # against the author's own toolchain.
   lint:
     runs-on: ubuntu-latest
     permissions:
@@ -87,6 +100,9 @@ jobs:
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           cache-bin: "false"
+      - name: cargo fmt --check
+        if: (github.event_name == 'workflow_dispatch' && inputs.fmt-check) || vars.FMT_CHECK == 'true'
+        run: cargo fmt --check
       - name: cargo fmt --check
         if: (github.event_name == 'workflow_dispatch' && inputs.fmt-check) || vars.FMT_CHECK == 'true'
         run: cargo fmt --check
@@ -159,6 +175,7 @@ jobs:
               exit 1
               ;;
           esac
+          curl -fsSL --proto '=https' "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.136/cargo-nextest-0.9.136-${arch}.tar.gz" \
           curl -fsSL --proto '=https' "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.136/cargo-nextest-0.9.136-${arch}.tar.gz" \
             -o /tmp/cargo-nextest.tar.gz
           echo "${sum}  /tmp/cargo-nextest.tar.gz" | sha256sum -c -
@@ -313,6 +330,7 @@ jobs:
         with:
           key: ${{ matrix.target }}
           cache-bin: "false"
+      - run: cargo build --locked --release ${{ matrix.cargo_target }}
       - run: cargo build --locked --release ${{ matrix.cargo_target }}
       # Each matrix leg builds for its own architecture, so this runs the binary
       # natively -- including aarch64, now that it builds on the spacelab runner

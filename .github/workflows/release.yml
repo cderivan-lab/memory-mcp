@@ -60,6 +60,8 @@ jobs:
   # The macOS job produces one universal binary; it is uploaded under both
   # macOS target names because the extension asks for `aarch64-apple-darwin.zip`
   # (and maps x64 to the same universal archive).
+  # macOS target names because the extension asks for `aarch64-apple-darwin.zip`
+  # (and maps x64 to the same universal archive).
   publish-binaries:
     needs: create-release
     strategy:
@@ -151,7 +153,14 @@ jobs:
           # Archives named the way the extension installer requests them. The
           # installer downloads the browser URL first and retries the release
           # asset API on 404, so these names are the API's lookup keys.
+          # Archives named the way the extension installer requests them. The
+          # installer downloads the browser URL first and retries the release
+          # asset API on 404, so these names are the API's lookup keys.
           for asset in $ASSETS; do
+            case "$asset" in
+              *apple-darwin) zip -q -j "dist/${asset}.zip" build/pali ;;
+              *) tar -C build -czf "dist/${asset}.tgz" pali ;;
+            esac
             case "$asset" in
               *apple-darwin) zip -q -j "dist/${asset}.zip" build/pali ;;
               *) tar -C build -czf "dist/${asset}.tgz" pali ;;
@@ -286,6 +295,7 @@ jobs:
           done
 
   # Undraft the release after every artifact is uploaded.
+
   publish-release:
     needs: [create-release, publish-binaries, publish-vsix]
     if: ${{ always() && needs.create-release.result == 'success' && needs.publish-binaries.result == 'success' && needs.publish-vsix.result == 'success' }}
