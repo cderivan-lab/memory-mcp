@@ -538,6 +538,29 @@ jobs:
           echo "${sum}  /tmp/cargo-nextest.tar.gz" | sha256sum -c -
           if [ "$(id -u)" -ne 0 ]; then S=sudo; else S=; fi
           $S tar xzf /tmp/cargo-nextest.tar.gz -C /usr/local/bin
+      - name: Install cargo-llvm-cov
+        if: matrix.js_tests != 'true'
+        run: |
+          set -euo pipefail
+          case "$(uname -m)" in
+            x86_64)
+              arch=x86_64-unknown-linux-gnu
+              sum=b3f68e625481fed9b16444174f3fa5ebcdbde4a1878803a35eabe2dcefcdc41a
+              ;;
+            aarch64|arm64)
+              arch=aarch64-unknown-linux-gnu
+              sum=abf5f13c1520f8756d2192bfaaeadb0208f5b7eaa8cadc15bf847befa42b7360
+              ;;
+            *)
+              echo "unsupported architecture: $(uname -m)" >&2
+              exit 1
+              ;;
+          esac
+          curl -fsSL --proto '=https' "https://github.com/taiki-e/cargo-llvm-cov/releases/download/v0.9.1/cargo-llvm-cov-${arch}.tar.gz" \
+            -o /tmp/cargo-llvm-cov.tar.gz
+          echo "${sum}  /tmp/cargo-llvm-cov.tar.gz" | sha256sum -c -
+          if [ "$(id -u)" -ne 0 ]; then S=sudo; else S=; fi
+          $S tar xzf /tmp/cargo-llvm-cov.tar.gz -C /usr/local/bin
       - name: Run Rust tests with coverage
         if: matrix.js_tests != 'true'
         run: |
