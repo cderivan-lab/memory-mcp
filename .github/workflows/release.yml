@@ -1,26 +1,3 @@
-# Release workflow — triggered by a tag push.
-#
-# A release ships two kinds of artifacts:
-#   * the `pali` binaries — Linux x86_64 and universal macOS — uploaded as
-#     human-readable `.tar.gz` archives plus archives named exactly as the
-#     extension installer requests them (`releaseAssetName` in
-#     src/utils/install_pali.ts): `<target>.zip` for macOS, `<target>.tgz`
-#     for Linux;
-#   * the VS Code extension — one VSIX per VS Code target, each bundling that
-#     platform's binary as `out/bin/pali`.
-#
-# Every artifact is uploaded to the draft release created first, and the
-# release is undrafted only when all of them are present.
-#
-# Releases are published through Gitea's release API using the GITEA_TOKEN
-# secret. These runs execute on the self-hosted Gitea instance, where `gh` talks
-# to github.com and would 404 on a repository that does not exist there.
-#
-# Crate and container publishing are not part of this workflow: they called
-# .github/workflows/{publish-crate,publish-image,update-release-notes}.yml,
-# which do not exist in this repository, so tag runs failed at job resolution
-# before anything was uploaded. Re-add them here once those reusable workflows
-# are restored; tagged container images are still built by ci.yml.
 name: Release
 
 on:
@@ -34,12 +11,8 @@ concurrency:
 permissions: {}
 
 env:
-  # Gitea's release API for this repository. `github.server_url` resolves to the
-  # instance the workflow runs on, so no host is hardcoded. GITHUB_TOKEN cannot
-  # authenticate against the Gitea API; GITEA_TOKEN is a token with repository
-  # write access.
-  GITEA_API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
-  GITEA_TOKEN: ${{ secrets.GITEA_TOKEN }}
+  GITHUB_API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
   create-release:
@@ -54,8 +27,8 @@ jobs:
           TAG_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          if [ -z "${GITEA_TOKEN:-}" ]; then
-            echo "::error::the GITEA_TOKEN secret is not set"
+          if [ -z "${GITHUB_TOKEN:-}" ]; then
+            echo "::error::the GITHUB_TOKEN secret is not set"
             exit 1
           fi
           command -v jq >/dev/null || { echo "::error::jq is required to read Gitea API responses"; exit 1; }
@@ -64,8 +37,8 @@ jobs:
           payload=$(printf '{"tag_name":"%s","name":"%s","draft":true,"prerelease":%s}' \
             "$TAG_NAME" "$TAG_NAME" "$prerelease")
           code=$(curl -sS -o /tmp/release.json -w '%{http_code}' \
-            -X POST "$GITEA_API/releases" \
-            -H "Authorization: token $GITEA_TOKEN" \
+            -X POST "$GITHUB_API/releases" \
+            -H "Authorization: token $GITHUB_TOKEN" \
             -H 'Content-Type: application/json' \
             -d "$payload")
           case "$code" in
@@ -79,10 +52,6 @@ jobs:
               ;;
           esac
 
-  # Build release binaries with cargo-auditable and attach them to the release.
-  # The macOS job produces one universal binary; it is uploaded under both
-  # macOS target names because the extension asks for `aarch64-apple-darwin.zip`
-  # (and maps x64 to the same universal archive).
   publish-binaries:
     needs: create-release
     strategy:
@@ -159,8 +128,6 @@ jobs:
               ;;
           esac
           chmod 755 build/pali
-      # A binary that cannot report its version cannot serve as an MCP server.
-      # Native now on every leg, including aarch64 on the spacelab runner.
       - name: Check the binary runs
         run: ./build/pali --version
       - name: Package and upload
@@ -171,9 +138,6 @@ jobs:
           cp build/pali "dist/${archive}/pali"
           tar -C dist -czf "dist/${archive}.tar.gz" "${archive}"
           rm -rf "dist/${archive}"
-          # Archives named the way the extension installer requests them. The
-          # installer downloads the browser URL first and retries the release
-          # asset API on 404, so these names are the API's lookup keys.
           for asset in $ASSETS; do
             case "$asset" in
               *apple-darwin) zip -q -j "dist/${asset}.zip" build/pali ;;
@@ -183,20 +147,20 @@ jobs:
           (cd dist && shasum -a 256 "${archive}.tar.gz" > "${archive}.tar.gz.sha256")
 
           command -v jq >/dev/null || { echo "::error::jq is required to read Gitea API responses"; exit 1; }
-          api() { curl -sS -H "Authorization: token $GITEA_TOKEN" "$@"; }
-          release_id=$(api "$GITEA_API/releases/tags/$TAG_NAME" | jq -r '.id')
+          api() { curl -sS -H "Authorization: token $GITHUB_TOKEN" "$@"; }
+          release_id=$(api "$GITHUB_API/releases/tags/$TAG_NAME" | jq -r '.id')
           if [ -z "$release_id" ] || [ "$release_id" = null ]; then
             echo "::error::release $TAG_NAME not found on the Gitea instance"
             exit 1
           fi
-          # Gitea refuses a duplicate asset name, so a rerun replaces the old one.
+
           for file in dist/*; do
             name=${file##*/}
-            for asset_id in $(api "$GITEA_API/releases/$release_id/assets" \
+            for asset_id in $(api "$GITHUB_API/releases/$release_id/assets" \
                 | jq -r --arg name "$name" '.[] | select(.name == $name) | .id'); do
-              api -X DELETE "$GITEA_API/releases/$release_id/assets/$asset_id" >/dev/null
+              api -X DELETE "$GITHUB_API/releases/$release_id/assets/$asset_id" >/dev/null
             done
-            api --fail-with-body -X POST "$GITEA_API/releases/$release_id/assets?name=$name" \
+            api --fail-with-body -X POST "$GITHUB_API/releases/$release_id/assets?name=$name" \
               -H 'Content-Type: application/octet-stream' \
               --data-binary @"$file" >/dev/null
             echo "uploaded $name"
@@ -208,10 +172,6 @@ jobs:
           path: build/pali
           retention-days: 1
 
-  # Bundle each platform's binary into its own VSIX. A VSIX carrying a native
-  # executable cannot be platform-agnostic, so every VS Code target the project
-  # ships gets its own package. Windows is absent for the same reason the
-  # binary matrix skips it (#42).
   publish-vsix:
     needs: [create-release, publish-binaries]
     strategy:
@@ -235,7 +195,7 @@ jobs:
     steps:
       # Needed on the self-hosted Gitea instance (internal CA); harmless on
       # GitHub-hosted runners.
-            - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ needs.create-release.outputs.tag_name }}
           persist-credentials: false
@@ -251,17 +211,10 @@ jobs:
           # Packaging must not pick the staging directory up as extension content.
           rm -rf .ci-bin
       - name: Install dependencies
-        # `npm ci` pins the resolved tree, including the package.json overrides
-        # that keep the dev-dependency tree off the audit report. Lifecycle
-        # scripts are skipped because `vscode:prepublish` compiles after
-        # packaging starts.
         run: npm ci --ignore-scripts
       - name: Check the tag matches the crate version
         run: |
           set -euo pipefail
-          # Release tags track the server crate, not the extension manifest:
-          # v1.0.0 carried extension 0.3.0, so comparing against package.json
-          # would block every release.
           version=$(grep -m1 '^version' pali/Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
           if [ "v$version" != "$TAG_NAME" ]; then
             echo "::error::pali/Cargo.toml is $version but the tag is $TAG_NAME"
@@ -273,36 +226,30 @@ jobs:
           version=$(node -p "require('./package.json').version")
           out="dist/pali-memory-${version}-${VSIX_TARGET}.vsix"
           mkdir -p dist
-          # The repository URL in package.json is self-hosted Gitea, which vsce
-          # does not recognise, so the README's relative links need explicit
-          # bases or packaging aborts.
           npm run package -- \
             --target "$VSIX_TARGET" \
             --baseContentUrl "https://github.com/cderivan/memory-mcp/src/branch/main" \
             --baseImagesUrl "https://github.com/cderivan/memory-mcp/raw/branch/main" \
             --out "$out"
-          # The bundled binary is the whole point of a platform-specific VSIX.
-          # No `grep -q`: closing the pipe early makes unzip die on SIGPIPE,
-          # which `pipefail` turns into a failed step.
           unzip -l "$out" | grep -F 'extension/out/bin/pali' >/dev/null
           ls -l "$out"
       - name: Upload VSIX
         run: |
           set -euo pipefail
           command -v jq >/dev/null || { echo "::error::jq is required to read Gitea API responses"; exit 1; }
-          api() { curl -sS -H "Authorization: token $GITEA_TOKEN" "$@"; }
-          release_id=$(api "$GITEA_API/releases/tags/$TAG_NAME" | jq -r '.id')
+          api() { curl -sS -H "Authorization: token $GITHUB_TOKEN" "$@"; }
+          release_id=$(api "$GITHUB_API/releases/tags/$TAG_NAME" | jq -r '.id')
           if [ -z "$release_id" ] || [ "$release_id" = null ]; then
             echo "::error::release $TAG_NAME not found on the Gitea instance"
             exit 1
           fi
           for file in dist/*.vsix; do
             name=${file##*/}
-            for asset_id in $(api "$GITEA_API/releases/$release_id/assets" \
+            for asset_id in $(api "$GITHUB_API/releases/$release_id/assets" \
                 | jq -r --arg name "$name" '.[] | select(.name == $name) | .id'); do
-              api -X DELETE "$GITEA_API/releases/$release_id/assets/$asset_id" >/dev/null
+              api -X DELETE "$GITHUB_API/releases/$release_id/assets/$asset_id" >/dev/null
             done
-            api --fail-with-body -X POST "$GITEA_API/releases/$release_id/assets?name=$name" \
+            api --fail-with-body -X POST "$GITHUB_API/releases/$release_id/assets?name=$name" \
               -H 'Content-Type: application/octet-stream' \
               --data-binary @"$file" >/dev/null
             echo "uploaded $name"
@@ -316,19 +263,19 @@ jobs:
     permissions:
       contents: write
     steps:
-            - name: Publish the release
+      - name: Publish the release
         env:
           TAG_NAME: ${{ needs.create-release.outputs.tag_name }}
         run: |
           set -euo pipefail
           command -v jq >/dev/null || { echo "::error::jq is required to read Gitea API responses"; exit 1; }
-          api() { curl -sS -H "Authorization: token $GITEA_TOKEN" "$@"; }
-          release_id=$(api "$GITEA_API/releases/tags/$TAG_NAME" | jq -r '.id')
+          api() { curl -sS -H "Authorization: token $GITHUB_TOKEN" "$@"; }
+          release_id=$(api "$GITHUB_API/releases/tags/$TAG_NAME" | jq -r '.id')
           if [ -z "$release_id" ] || [ "$release_id" = null ]; then
             echo "::error::release $TAG_NAME not found on the Gitea instance"
             exit 1
           fi
-          api --fail-with-body -X PATCH "$GITEA_API/releases/$release_id" \
+          api --fail-with-body -X PATCH "$GITHUB_API/releases/$release_id" \
             -H 'Content-Type: application/json' \
             -d '{"draft":false}' >/dev/null
           echo "published $TAG_NAME"

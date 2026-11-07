@@ -1,18 +1,8 @@
-# Ad-hoc builds of the `pali` binary on Linux, macOS, and Windows.
-#
-# Tags are NOT handled here: release.yml owns everything a release publishes
-# (binaries plus the VSIX), so a tag push must not start a second, partly
-# overlapping build matrix that races it onto the same release.
-#
-# The release profile statically links OpenSSL and zlib (ADR-0023), so every
-# job needs a native C/C++ toolchain; the GitHub-hosted images ship one, plus
-# perl and cmake for openssl-src and usearch.
 name: Build Binaries
 
 on:
   workflow_dispatch:
 
-# A newer run for the same ref supersedes an older one; artifacts are per-run.
 concurrency:
   group: binaries-${{ github.ref }}
   cancel-in-progress: true
@@ -37,9 +27,6 @@ jobs:
             os: ubuntu-latest
           - target: aarch64-apple-darwin
             os: macos-latest
-          # Windows builds are best-effort: usearch still needs a working
-          # vector index there (#42, #56). x64 is built natively on the
-          # windows-latest runner; arm64 is cross-compiled from that runner.
           - target: x86_64-pc-windows-msvc
             os: windows-latest
           - target: aarch64-pc-windows-msvc
@@ -65,8 +52,6 @@ jobs:
           case "${{ matrix.target }}" in
             *windows*) ext=".exe" ;;
           esac
-          # Asset name the extension installer asks for (src/utils/install_pali.ts,
-          # `releaseUrl`); keep it identical to what release.yml uploads.
           name="pali-${{ matrix.target }}"
           mkdir -p dist
           cp "target/${{ matrix.target }}/release/pali${ext}" "dist/${name}${ext}"
