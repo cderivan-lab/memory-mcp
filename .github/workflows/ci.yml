@@ -274,7 +274,7 @@ jobs:
           - name: js-tests
             rust_features: ""
             js_tests: true
-    steps:            
+    steps:
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master (2026-03-27)
@@ -302,7 +302,7 @@ jobs:
               exit 1
               ;;
           esac
-          curl -fsSL --proto '=https' "https://github.com/nex test-rs/nextest/releases/download/cargo-nextest-0.9.136/cargo-nextest-0.9.136-${arch}.tar.gz" \
+          curl -fsSL --proto '=https' "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.136/cargo-nextest-0.9.136-${arch}.tar.gz" \
             -o /tmp/cargo-nextest.tar.gz
           echo "${sum}  /tmp/cargo-nextest.tar.gz" | sha256sum -c -
           if [ "$(id -u)" -ne 0 ]; then S=sudo; else S=; fi
