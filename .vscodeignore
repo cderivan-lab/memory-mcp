@@ -67,3 +67,5 @@ test-resources/**
 node_modules/**
 .pali/**
 coverage/**
+.sonarlint/**
+plans/**

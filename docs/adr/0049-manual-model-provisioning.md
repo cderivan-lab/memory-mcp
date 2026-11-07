@@ -6,6 +6,14 @@ Accepted. The Dockerfile, Dockerfile.ci, and CI workflow clauses are
 superseded by [ADR-0050](0050-minimal-local-core.md); manual model
 provisioning stands.
 
+> **Superseded:** ADR-0051 re-introduces automatic HuggingFace model download
+> as the default behavior. The "no automatic download" clause below is
+> superseded; `PALI_MODEL_DIR` still takes precedence and manual provisioning
+> via `scripts/fetch-model.sh` remains the documented fallback for
+> air-gapped or pre-baked deployments. The Dockerfile, Dockerfile.ci, and CI
+> workflow clauses (pre-baking the model in the build stage, caching by
+> `scripts/fetch-model.sh` hash) remain valid and are unchanged.
+
 ## Context
 
 ADR-0016 chose candle-core/candle-transformers for pure-Rust BERT inference
