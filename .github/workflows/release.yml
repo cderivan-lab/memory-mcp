@@ -49,10 +49,7 @@ jobs:
     outputs:
       tag_name: ${{ github.ref_name }}
     steps:
-      # This job talks to the Gitea API over HTTPS, so it needs the internal
-      # root in curl's trust store; without it release creation dies with
-      # "unable to get local issuer certificate".
-            - name: Create draft release
+      - name: Create draft release
         env:
           TAG_NAME: ${{ github.ref_name }}
         run: |
