@@ -229,6 +229,91 @@ jobs:
           $S tar xzf /tmp/cargo-nextest.tar.gz -C /usr/local/bin
       - run: cargo nextest run --workspace --no-fail-fast ${{ matrix.features }}
 
+  # End-to-end: the extension inside a real VS Code host, and a UI run that
+  # clicks the install notification (VS Code exposes no API for that, so it
+  # needs a real driver). Both open a window, hence xvfb. The two large
+  # downloads — VS Code for each runner and ChromeDriver for ExTester — are
+  # cached, so only a lockfile change re-downloads them.
+  test-e2e:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      # Needed on the self-hosted Gitea instance (internal CA); harmless on
+      # GitHub-hosted runners.
+      - name: Trust the internal CA
+        run: |
+          set -euo pipefail
+          cert="$RUNNER_TEMP/clebsong-root-ca.crt"
+          printf '%s\n' "$CLEBSONG_ROOT_CA_PEM" > "$cert"
+          echo "NODE_EXTRA_CA_CERTS=$cert" >> "$GITHUB_ENV"
+          echo "CURL_CA_BUNDLE=$cert" >> "$GITHUB_ENV"
+          if [ "$(uname -s)" = "Linux" ]; then
+            if [ "$(id -u)" -ne 0 ]; then S=sudo; else S=; fi
+            $S cp "$cert" /usr/local/share/ca-certificates/clebsong-root-ca.crt
+            $S update-ca-certificates
+          fi
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Install a virtual display
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends xvfb
+      # `npm run build` compiles the server crate and stages out/bin/pali, so this
+      # job needs the same Rust toolchain and native dependencies as `test`.
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master (2026-03-27)
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          key: e2e
+          cache-bin: "false"
+      # Cached runner state: `.vscode-test` holds the VS Code build the host
+      # suite launches, `test-resources` holds ExTester's VS Code and
+      # ChromeDriver. Bump the salt when the cached layout or the pinned
+      # VS Code major changes.
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            .vscode-test
+            test-resources
+          key: e2e-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-v1
+          restore-keys: |
+            e2e-${{ runner.os }}-
+      - name: Install dependencies and build the extension
+        run: |
+          set -euo pipefail
+          npm ci
+          npm run build
+      - name: Extension host end-to-end
+        run: xvfb-run -a npm run test:e2e
+      # Seed the repository-root `.env` the launchers read, so this job
+      # exercises the documented configuration path instead of only the
+      # throwaway-directory fallback. PALI_E2E_STORAGE stays unset: ExTester's
+      # VS Code and ChromeDriver cache lives under test-resources.
+      - name: Seed the end-to-end environment
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pali-e2e/hooks" \
+                   "$RUNNER_TEMP/pali-e2e/instructions" \
+                   "$RUNNER_TEMP/pali-e2e/skills"
+          cat > .env <<EOF
+          PALI_HOOKS_DIR=$RUNNER_TEMP/pali-e2e/hooks
+          PALI_INSTRUCTIONS_PATH=$RUNNER_TEMP/pali-e2e/instructions/pali-memory.instructions.md
+          PALI_SKILLS_DIR=$RUNNER_TEMP/pali-e2e/skills
+          EOF
+      - name: Notification click end-to-end
+        run: xvfb-run -a npm run test:e2e:ui
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: e2e-failure-artifacts
+          path: |
+            test-resources/screenshots
+            test-resources/chromedriver.log
+          retention-days: 3
+
   # Package the extension the way a release does, so broken vsce packaging or a
   # stale manifest fails on the PR instead of on the tag. No binary is staged
   # here, so this VSIX is a packaging check rather than a shippable artifact.
@@ -426,87 +511,3 @@ jobs:
           cache-bin: "false"
       - uses: obi1kenobi/cargo-semver-checks-action@6b69fcf40e9b5fb17adeb57e4b6ecd020649a239 # v2.9
 
-  # End-to-end: the extension inside a real VS Code host, and a UI run that
-  # clicks the install notification (VS Code exposes no API for that, so it
-  # needs a real driver). Both open a window, hence xvfb. The two large
-  # downloads — VS Code for each runner and ChromeDriver for ExTester — are
-  # cached, so only a lockfile change re-downloads them.
-  e2e:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      # Needed on the self-hosted Gitea instance (internal CA); harmless on
-      # GitHub-hosted runners.
-      - name: Trust the internal CA
-        run: |
-          set -euo pipefail
-          cert="$RUNNER_TEMP/clebsong-root-ca.crt"
-          printf '%s\n' "$CLEBSONG_ROOT_CA_PEM" > "$cert"
-          echo "NODE_EXTRA_CA_CERTS=$cert" >> "$GITHUB_ENV"
-          echo "CURL_CA_BUNDLE=$cert" >> "$GITHUB_ENV"
-          if [ "$(uname -s)" = "Linux" ]; then
-            if [ "$(id -u)" -ne 0 ]; then S=sudo; else S=; fi
-            $S cp "$cert" /usr/local/share/ca-certificates/clebsong-root-ca.crt
-            $S update-ca-certificates
-          fi
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - name: Install a virtual display
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends xvfb
-      # `npm run build` compiles the server crate and stages out/bin/pali, so this
-      # job needs the same Rust toolchain and native dependencies as `test`.
-      - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
-      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master (2026-03-27)
-        with:
-          toolchain: stable
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-        with:
-          key: e2e
-          cache-bin: "false"
-      # Cached runner state: `.vscode-test` holds the VS Code build the host
-      # suite launches, `test-resources` holds ExTester's VS Code and
-      # ChromeDriver. Bump the salt when the cached layout or the pinned
-      # VS Code major changes.
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
-        with:
-          path: |
-            .vscode-test
-            test-resources
-          key: e2e-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-v1
-          restore-keys: |
-            e2e-${{ runner.os }}-
-      - name: Install dependencies and build the extension
-        run: |
-          set -euo pipefail
-          npm ci
-          npm run build
-      - name: Extension host end-to-end
-        run: xvfb-run -a npm run test:e2e
-      # Seed the repository-root `.env` the launchers read, so this job
-      # exercises the documented configuration path instead of only the
-      # throwaway-directory fallback. PALI_E2E_STORAGE stays unset: ExTester's
-      # VS Code and ChromeDriver cache lives under test-resources.
-      - name: Seed the end-to-end environment
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/pali-e2e/hooks" \
-                   "$RUNNER_TEMP/pali-e2e/instructions" \
-                   "$RUNNER_TEMP/pali-e2e/skills"
-          cat > .env <<EOF
-          PALI_HOOKS_DIR=$RUNNER_TEMP/pali-e2e/hooks
-          PALI_INSTRUCTIONS_PATH=$RUNNER_TEMP/pali-e2e/instructions/pali-memory.instructions.md
-          PALI_SKILLS_DIR=$RUNNER_TEMP/pali-e2e/skills
-          EOF
-      - name: Notification click end-to-end
-        run: xvfb-run -a npm run test:e2e:ui
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: failure()
-        with:
-          name: e2e-failure-artifacts
-          path: |
-            test-resources/screenshots
-            test-resources/chromedriver.log
-          retention-days: 3

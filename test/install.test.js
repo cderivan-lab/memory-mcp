@@ -136,7 +136,7 @@ test("promptUpdate calls installLatest when user chooses upgrade", async () => {
         json: async () => ({
           tag_name: "v2.0.0",
           assets: [
-            { name: "aarch64-apple-darwin.zip", url: "https://example.com/download" }
+            { name: "aarch64-apple-darwin.zip", url: "data:application/zip;base64,UEsDBBQAAAAIAAoAAAAA" }
           ]
         })
       };
