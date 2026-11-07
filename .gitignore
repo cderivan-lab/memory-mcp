@@ -41,3 +41,5 @@ test-resources/
 .e2e-ui/
 .pali/
 images/icon.png
+.sonarlint/connectedMode.json
+alembic.ini
