@@ -105,6 +105,8 @@ jobs:
           echo "${sum}  /tmp/cargo-nextest.tar.gz" | sha256sum -c -
           if [ "$(id -u)" -ne 0 ]; then S=sudo; else S=; fi
           $S tar xzf /tmp/cargo-nextest.tar.gz -C /usr/local/bin
+      - name: Download embedding model for tests
+        run: scripts/fetch-model.sh
       - run: cargo nextest run --workspace --no-fail-fast ${{ matrix.features }}
 
   test-e2e:
@@ -276,6 +278,7 @@ jobs:
             rust_features: ""
             js_tests: true
     steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master (2026-03-27)
@@ -331,6 +334,8 @@ jobs:
           echo "${sum}  /tmp/cargo-llvm-cov.tar.gz" | sha256sum -c -
           if [ "$(id -u)" -ne 0 ]; then S=sudo; else S=; fi
           $S tar xzf /tmp/cargo-llvm-cov.tar.gz -C /usr/local/bin
+      - name: Download embedding model for tests
+        run: scripts/fetch-model.sh
       - name: Run Rust tests with coverage
         if: matrix.js_tests != 'true'
         run: |
@@ -344,6 +349,9 @@ jobs:
           set -euo pipefail
           npm ci --ignore-scripts
           npm run build:binary
+      - name: Download embedding model for JS tests
+        if: matrix.js_tests == 'true'
+        run: scripts/fetch-model.sh
       - name: Run JS/TS tests with coverage
         if: matrix.js_tests == 'true'
         run: |
