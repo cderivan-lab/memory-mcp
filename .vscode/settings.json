@@ -9,5 +9,6 @@
     "js/ts.tsc.autoDetect": "off",
     "[rust]": {
         "editor.defaultFormatter": "rust-lang.rust-analyzer"
-    }
+    },
+    "markdown.validate.enabled": true
 }

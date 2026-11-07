@@ -1,19 +1,23 @@
 ---
+name: openspec-create-detailed-design
 description: Generate a detailed technical design document for an OpenSpec change (design only).
 ---
-
 $ARGUMENTS
 <!-- OPENSPEC:START -->
 **Guardrails**
 - Do NOT output the Markdown content in the chat. Instead, use the file creation tool to create `openspec/changes/<change-id>/detailed-design.md`.
-- After creating the file, ask the user to review its content.
+- After creating the file, inform the user that the file has been created at `openspec/changes/<change-id>/detailed-design.md` for review.
 - Design only: do NOT implement code.
 - Keep the design specific and actionable; avoid vague statements.
-- When you mention file paths, ALWAYS prefix them with `<RepositoryName>/`.
-  - The repository name is variable in OpenSpec contexts.
-  - If you can confidently infer the repository name from the workspace/context, replace `<RepositoryName>` with the actual name.
-  - Otherwise, keep `<RepositoryName>/` as a placeholder consistently.
+- When you mention file paths, prefix them with the actual repository name if you have clear evidence from the workspace/context. If ambiguous or no evidence exists, use `<RepositoryName>` as a placeholder. Never mix both styles in the same document.
 - Do the reasoning internally; do NOT output chain-of-thought.
+
+**Steps**
+1. **Analysis Phase**: Read the provided change inputs (`proposal.md`, `tasks.md`, optional `design.md`, and any delta specs under `openspec/changes/<change-id>/specs/**/spec.md`). Explore the existing codebase to understand current behavior and identify impact areas.
+
+2. **Creation Phase**: Produce a comprehensive `detailed-design.md` file that clearly states the problem and chosen approach, lists **In Scope** and **Out of Scope**, includes Mermaid diagrams when needed, provides implementation details grouped by file path, covers migration strategy, and includes a verification plan.
+
+3. **Verification Phase**: Self-check: Does the design satisfy `proposal.md` and align with `tasks.md`? Are all file paths specific and prefixed appropriately? Are Mermaid diagrams valid? Are code snippets syntactically correct with necessary imports? Note completion and ask the user to review the file.
 
 **Steps**
 1. Read the provided change inputs: `proposal.md`, `tasks.md`, optional `design.md`, and any delta specs under `openspec/changes/<change-id>/specs/**/spec.md`.

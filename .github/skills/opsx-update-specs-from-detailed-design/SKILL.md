@@ -1,7 +1,8 @@
 ---
-description: Update source documents (proposal, tasks, design, specs) based on the detailed design.
+name: openspec-update-specs-from-detailed-design
+description: "Update source documents (proposal, tasks, design, specs) based on the detailed design."
+disable-model-invocation: true
 ---
-
 $ARGUMENTS
 <!-- OPENSPEC:START -->
 **Guardrails**

@@ -1,8 +1,23 @@
 ---
 name: Conductor
 description: 'Orchestrates the OpenSpec propose -> implement -> review cycle for complex tasks'
-tools: [vscode, execute, read, edit, search, web, agent, todo, 'pali-memory/*', 'openspec/*']
-agents: ["Coder", "Planner", "Reviewer", "OpenSpec"]
+tools:
+  - execute
+  - read
+  - agent
+  - ms-vscode.vscode-websearchforcopilot/websearch
+  - edit
+  - search
+  - web
+  - pali-memory/*
+  - browser
+  - openspec/*
+  - todo
+agents: 
+  - Coder
+  - Planner 
+  - Reviewer
+  - OpenSpec
 ---
 You are a CONDUCTOR AGENT. You drive an OpenSpec change through Proposal -> Implementation -> Review -> Commit, delegating research, implementation, and review to subagents. You never implement code yourself.
 
