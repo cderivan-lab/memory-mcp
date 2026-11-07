@@ -36,20 +36,22 @@ function createFakeVscode({ rootPath, answer, configStore, progressCancellable =
       },
       withProgress: (options, task) => {
         state.progressCalled.push(options);
-        const progress = { report: () => {} };
-        const cancellableToken = { onCancellationRequested: (handler) => {
-          state.progressCancelHandler = handler;
-          return { dispose: () => {} };
-        } };
+        const progress = { report: () => { } };
+        const cancellableToken = {
+          onCancellationRequested: (handler) => {
+            state.progressCancelHandler = handler;
+            return { dispose: () => { } };
+          }
+        };
         return task(progress, cancellableToken);
       },
     },
     commands: {
       registerCommand: (id, body) => {
         state.commands.set(id, body);
-        return { dispose: () => {} };
+        return { dispose: () => { } };
       },
-      executeCommand: () => {},
+      executeCommand: () => { },
     },
     workspace: {
       rootPath,
