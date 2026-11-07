@@ -1,0 +1,27 @@
+{
+  "changeId": "add-copilot-session-capture",
+  "status": "in_progress",
+  "approvals": [
+    {
+      "approver": "Clebson Derivan",
+      "approvedAt": "2026-11-07T14:59:00.840Z",
+      "comment": "\n"
+    }
+  ],
+  "rejections": [],
+  "history": [
+    {
+      "action": "request_approval",
+      "by": "user",
+      "at": "2026-11-07T14:58:22.156Z"
+    },
+    {
+      "action": "approved",
+      "by": "Clebson Derivan",
+      "at": "2026-11-07T14:59:00.840Z",
+      "details": "\n"
+    }
+  ],
+  "requestedAt": "2026-11-07T14:58:22.156Z",
+  "requestedBy": "user"
+}

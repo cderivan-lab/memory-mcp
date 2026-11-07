@@ -1,0 +1,25 @@
+{
+  "changeId": "detailed-designs",
+  "status": "in_progress",
+  "approvals": [
+    {
+      "approver": "Clebson Derivan",
+      "approvedAt": "2026-11-07T14:59:21.793Z"
+    }
+  ],
+  "rejections": [],
+  "history": [
+    {
+      "action": "request_approval",
+      "by": "user",
+      "at": "2026-11-07T14:58:11.356Z"
+    },
+    {
+      "action": "approved",
+      "by": "Clebson Derivan",
+      "at": "2026-11-07T14:59:21.793Z"
+    }
+  ],
+  "requestedAt": "2026-11-07T14:58:11.356Z",
+  "requestedBy": "user"
+}

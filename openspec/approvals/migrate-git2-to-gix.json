@@ -1,0 +1,25 @@
+{
+  "changeId": "migrate-git2-to-gix",
+  "status": "in_progress",
+  "approvals": [
+    {
+      "approver": "Clebson Derivan",
+      "approvedAt": "2026-11-07T14:59:35.164Z"
+    }
+  ],
+  "rejections": [],
+  "history": [
+    {
+      "action": "request_approval",
+      "by": "user",
+      "at": "2026-11-07T14:58:13.459Z"
+    },
+    {
+      "action": "approved",
+      "by": "Clebson Derivan",
+      "at": "2026-11-07T14:59:35.164Z"
+    }
+  ],
+  "requestedAt": "2026-11-07T14:58:13.459Z",
+  "requestedBy": "user"
+}

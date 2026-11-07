@@ -39,5 +39,5 @@
 
 ## Review
 
-- [ ] Review-fix loop, then independent certification review of the exact
+- [-] Review-fix loop, then independent certification review of the exact
       head (per AGENTS.md code-review process)

@@ -112,3 +112,27 @@ test("uninstall removes the instructions file only when unchanged", async () => 
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("a write failure is reported as failed", async () => {
+  const extensionRoot = await makeExtension();
+  // A directory as the target makes writeFileSync throw, so the installer
+  // cannot leave a file and must report the failure instead of crashing.
+  const blocking = tempPath("blocking");
+  await mkdir(blocking, { recursive: true });
+  try {
+    assert.equal(installInstructions(extensionRoot, blocking), "failed");
+  } finally {
+    await rm(extensionRoot, { recursive: true, force: true });
+    await rm(blocking, { recursive: true, force: true });
+  }
+});
+
+test("the default install path lives in the user's copilot instructions dir", () => {
+  const { userInstructionsDir, instructionsInstallPath } = require("../out/utils/lib");
+  const home = userInstructionsDir();
+  assert.equal(
+    instructionsInstallPath(),
+    join(home, "pali-memory.instructions.md"),
+    "the installed file sits next to the user's copilot instructions",
+  );
+});
