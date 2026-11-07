@@ -94,3 +94,4 @@ For a design decision where alternatives were seriously weighed, add an ADR in `
 5. Repeat until an independent review of the exact current head reports zero findings at or above Low severity.
 
 The maintainer remains the merge latch. A green test run or an author's self-review is not merge authorization.
+
