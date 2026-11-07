@@ -250,6 +250,9 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master (2026-03-27)
+        with:
+          toolchain: stable
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check
@@ -271,8 +274,6 @@ jobs:
           - name: js-tests
             rust_features: ""
             js_tests: true
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master (2026-03-27)
@@ -300,7 +301,7 @@ jobs:
               exit 1
               ;;
           esac
-          curl -fsSL --proto '=https' "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.136/cargo-nextest-0.9.136-${arch}.tar.gz" \
+          curl -fsSL --proto '=https' "https://github.com/nex test-rs/nextest/releases/download/cargo-nextest-0.9.136/cargo-nextest-0.9.136-${arch}.tar.gz" \
             -o /tmp/cargo-nextest.tar.gz
           echo "${sum}  /tmp/cargo-nextest.tar.gz" | sha256sum -c -
           if [ "$(id -u)" -ne 0 ]; then S=sudo; else S=; fi
