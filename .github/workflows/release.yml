@@ -143,29 +143,6 @@ jobs:
       ASSETS: ${{ matrix.assets }}
       TAG_NAME: ${{ needs.create-release.outputs.tag_name }}
     steps:
-      # Needed on the self-hosted Gitea instance (internal CA); harmless on
-      # GitHub-hosted runners.
-      - name: Trust the internal CA
-        run: |
-          set -euo pipefail
-          cert="$RUNNER_TEMP/clebsong-root-ca.crt"
-          printf '%s\n' "$CLEBSONG_ROOT_CA_PEM" > "$cert"
-          # Node ships its own bundle and ignores the system store, so every
-          # actions/*.js step (upload-artifact, cache) must be handed the root
-          # explicitly. This used to be guarded by runner.os == 'Linux', which
-          # skipped the step on macOS entirely and made upload-artifact fail
-          # with "unable to verify the first certificate".
-          echo "NODE_EXTRA_CA_CERTS=$cert" >> "$GITHUB_ENV"
-          echo "CURL_CA_BUNDLE=$cert" >> "$GITHUB_ENV"
-          if [ "$(uname -s)" = "Linux" ]; then
-            if [ "$(id -u)" -ne 0 ]; then S=sudo; else S=; fi
-            $S cp "$cert" /usr/local/share/ca-certificates/clebsong-root-ca.crt
-            $S update-ca-certificates
-          else
-            # git and curl on the macOS runner read the system keychain.
-            sudo security add-trusted-cert -d -r trustRoot \
-              -k /Library/Keychains/System.keychain "$cert"
-          fi
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ needs.create-release.outputs.tag_name }}
