@@ -65,6 +65,15 @@ and no log line ever carries a token, credential, or memory content.
 | --- | --- | --- | --- |
 | `--embed-timeout-secs` | `PALI_EMBED_TIMEOUT_SECS` | `30` | Maximum time for one embedding call |
 | `--embed-queue-size` | `PALI_EMBED_QUEUE_SIZE` | `64` | Bounded embedding-worker queue |
+| `--no-model-download` | `PALI_NO_MODEL_DOWNLOAD` | `false` | When true, skip automatic download and fail if model files are missing |
+
+### HuggingFace Hub configuration
+
+The automatic model download uses the [hf-hub](https://docs.rs/hf-hub) crate with
+environment variables documented there:
+
+- `HF_HOME` — cache directory for downloaded model files (default: `~/.cache/huggingface`)
+- `HF_ENDPOINT` — override the Hub API URL (useful for self-hosted mirrors)
 
 ## Git credentials
 
@@ -90,9 +99,11 @@ credential configuration.
 ## Embedding model
 
 Pali computes embeddings locally with Candle and BGE-small-en-v1.5
-(384 dimensions). Pali does not download the model files itself: fetch them
-once with `scripts/fetch-model.sh`, then run `pali warmup` to verify they load
-before starting the server.
+(384 dimensions). On first run, if the model files are missing locally,
+Pali automatically downloads them from HuggingFace Hub. The files are cached
+under `HF_HOME` (defaults to `~/.cache/huggingface/hub/models--BAAI--bge-small-en-v1.5`)
+and respect the `HF_ENDPOINT` environment variable for self-hosted Hub mirrors.
+Download progress bars are suppressed for headless operation; status is logged via tracing.
 
 Model files are resolved from, in order:
 
