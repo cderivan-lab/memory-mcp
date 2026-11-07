@@ -1,8 +1,30 @@
 {
   "name": "pali-memory",
   "displayName": "Pali Memory",
-  "version": "0.3.0",
   "description": "Registers the Pali memory MCP server and installs its GitHub Copilot hooks.",
+  "version": "1.0.0",
+  "publisher": "cderivan",
+  "license": "MIT",
+  "icon": "images/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cderivan/memory-mcp"
+  },
+  "bugs": {
+    "url": "https://github.com/cderivan/memory-mcp/issues"
+  },
+  "homepage": "https://github.com/cderivan/memory-mcp#readme",
+  "galleryBanner": {
+    "color": "#1F2430",
+    "theme": "dark"
+  },
+  "engines": {
+    "vscode": "^1.145.0"
+  },
+  "categories": [
+    "AI",
+    "Other"
+  ],
   "keywords": [
     "ai",
     "copilot",
@@ -11,53 +33,10 @@
     "model context protocol",
     "pali"
   ],
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/cderivan/memory-mcp"
-  },
-  "publisher": "cderivan",
   "main": "./out/extension.js",
-  "scripts": {
-    "esbuild-base": "esbuild ./src/extension.ts ./src/uninstall.ts --bundle --outdir=out --external:vscode --format=cjs --platform=node",
-    "build:binary": "node scripts/build-binary.mjs",
-    "build": "npm run build:binary && npm run compile",
-    "icon": "node scripts/make-icon.js",
-    "package": "vsce package --baseContentUrl https://github.com/cderivan/memory-mcp/src/branch/main --baseImagesUrl https://github.com/cderivan/memory-mcp/raw/branch/main",
-    "compile": "npm run -S esbuild-base -- --sourcemap",
-    "compile:tests": "esbuild ./src/extension.ts ./src/uninstall.ts ./src/utils/lib.ts ./src/utils/instructions.ts ./src/utils/install_pali.ts ./src/utils/logger.ts --bundle --outdir=out --external:vscode --format=cjs --platform=node --sourcemap",
-    "pretest": "npm run -S compile:tests",
-    "prepare": "npm run compile && npm run icon",
-    "postinstall": "node scripts/patch-url-parse.js",
-    "vscode:uninstall": "node ./out/uninstall.js",
-    "test": "node --test test/extension.test.js test/extension.activation.test.js test/skill.test.js test/instructions.test.js test/load-env.test.mjs",
-    "pkginstall": "code --install-extension pali-memory-0.3.0.vsix",
-    "pkguninstall": "code --uninstall-extension cderivan.pali-memory",
-    "reinstall": "npm run pkguninstall & npm run pkginstall",
-    "test:e2e": "vscode-test",
-    "test:e2e:ui": "node scripts/e2e-ui-fixtures.mjs && node scripts/run-e2e-ui.mjs",
-    "test:coverage": "node --experimental-test-coverage --test test/extension.test.js test/extension.activation.test.js test/instructions.test.js",
-    "test:vsix": "node --test test/vsix.test.js",
-    "clean": "rm -rf out node_modules target pali-memory-*.vsix tsconfig.tsbuildinfo",
-    "vscode:prepublish": "npm run compile && npm run icon",
-    "watch": "tsc -p tsconfig.json --watch"
-  },
-  "devDependencies": {
-    "@types/node": "^26.6.6",
-    "@types/vscode": "^1.145.0",
-    "@vscode/test-cli": "^0.0.15",
-    "@vscode/test-electron": "^3.1.0",
-    "@vscode/vsce": "4.1.0",
-    "esbuild": "^0.28.2",
-    "typescript": "^7.0.2",
-    "vscode-extension-tester": "8.28.1"
-  },
-  "overrides": {
-    "diff": "^9.0.0",
-    "glob": "^14.0.3",
-    "minimatch": "^11.0.3",
-    "serialize-javascript": "^7.1.4"
-  },
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "contributes": {
     "commands": [
       {
@@ -168,19 +147,50 @@
       }
     ]
   },
-  "activationEvents": [
-    "onStartupFinished"
-  ],
-  "icon": "images/icon.png",
-  "galleryBanner": {
-    "color": "#1F2430",
-    "theme": "dark"
+  "scripts": {
+    "esbuild-base": "esbuild ./src/extension.ts ./src/uninstall.ts --bundle --outdir=out --external:vscode --format=cjs --platform=node",
+    "build:binary": "node scripts/build-binary.mjs",
+    "build": "npm run build:binary && npm run compile",
+    "icon": "node scripts/make-icon.js",
+    "package": "vsce package",
+    "compile": "npm run -S esbuild-base -- --sourcemap",
+    "compile:tests": "esbuild ./src/extension.ts ./src/uninstall.ts ./src/utils/lib.ts ./src/utils/instructions.ts ./src/utils/install.ts ./src/utils/install_pali.ts ./src/utils/logger.ts --bundle --outdir=out --external:vscode --format=cjs --platform=node --sourcemap --outbase=./src",
+    "pretest": "npm run -S compile:tests",
+    "prepare": "npm run compile && npm run icon",
+    "postinstall": "node scripts/patch-url-parse.js",
+    "vscode:uninstall": "node ./out/uninstall.js",
+    "test": "mocha test/**/*.test.js test/**/*.test.mjs hooks/test/**/*.test.mjs",
+    "pkginstall": "code --install-extension pali-memory-1.0.0.vsix",
+    "pkguninstall": "code --uninstall-extension cderivan.pali-memory",
+    "reinstall": "npm run pkguninstall & npm run pkginstall",
+    "test:e2e": "vscode-test",
+    "test:e2e:ui": "node scripts/e2e-ui-fixtures.mjs && node scripts/run-e2e-ui.mjs",
+    "test:coverage": "c8 mocha test/**/*.test.js test/**/*.test.mjs --options c8-node-options=http2",
+    "test:vsix": "mocha test/vsix.test.js",
+    "test:hooks": "mocha hooks/test/**/*.test.mjs",
+    "clean": "rm -rf out node_modules target pali-memory-*.vsix tsconfig.tsbuildinfo",
+    "vscode:prepublish": "npm run compile && npm run icon",
+    "watch": "tsc -p tsconfig.json --watch"
   },
-  "engines": {
-    "vscode": "^1.145.0"
+  "devDependencies": {
+    "@types/chai": "^5.2.3",
+    "@types/mocha": "^10.0.9",
+    "@types/node": "^26.6.6",
+    "@types/vscode": "^1.145.0",
+    "@vscode/test-cli": "^0.0.15",
+    "@vscode/test-electron": "^3.1.0",
+    "@vscode/vsce": "4.1.0",
+    "chai": "^6.3.0",
+    "c8": "^12.0.0",
+    "esbuild": "^0.28.2",
+    "mocha": "^12.0.3",
+    "typescript": "^7.0.2",
+    "vscode-extension-tester": "8.28.1"
   },
-  "allowScripts": {
-    "@vscode/vsce-sign@2.1.0": true,
-    "esbuild@0.28.2": true
+  "overrides": {
+    "diff": "^9.0.0",
+    "glob": "^14.0.3",
+    "minimatch": "^11.0.3",
+    "serialize-javascript": "^7.1.4"
   }
 }
