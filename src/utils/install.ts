@@ -137,7 +137,7 @@ export class UI {
     if (response === update) {
       await common.installLatest(this);
     } else if (response === dontCheck) {
-      config.update('checkUpdates', false, vscode.ConfigurationTarget.Global);
+      await config.update('checkUpdates', false, vscode.ConfigurationTarget.Global);
     }
   }
 
@@ -157,10 +157,12 @@ export class UI {
 
   get paliPath(): string { return this._paliPath as string; }
   set paliPath(p: string) {
+    this._paliPath = p;
     this._pathUpdated = new Promise(resolve => {
       config.update('path', p, vscode.ConfigurationTarget.Global).then(() => {
-        this._paliPath = p;
         resolve();
+      }).catch(() => {
+        // Ignore errors; path update failure is non-critical.
       });
     });
   }

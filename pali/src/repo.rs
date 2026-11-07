@@ -377,7 +377,6 @@ impl MemoryRepo {
     /// `tokio::task::spawn_blocking` so the async executor is not stalled.
     pub async fn save_memory(self: &Arc<Self>, memory: &Memory) -> Result<(), MemoryError> {
         let file_path = self.memory_path(&memory.name, &memory.metadata.scope);
-        self.assert_within_root(&file_path)?;
 
         let arc = Arc::clone(self);
         let memory = memory.clone();
@@ -392,8 +391,12 @@ impl MemoryRepo {
                 .lock()
                 .expect("lock poisoned — prior panic corrupted state");
 
+            // Validate path is within repo root.
+            arc.assert_within_root(&file_path)?;
+
             // Ensure the parent directory exists.
             if let Some(parent) = file_path.parent() {
+                #[allow(clippy::disallowed_methods)]
                 std::fs::create_dir_all(parent)?;
             }
 
@@ -430,7 +433,6 @@ impl MemoryRepo {
         scope: &Scope,
     ) -> Result<(), MemoryError> {
         let file_path = self.memory_path(name, scope);
-        self.assert_within_root(&file_path)?;
 
         let arc = Arc::clone(self);
         let name = name.to_string();
@@ -443,8 +445,11 @@ impl MemoryRepo {
                 .lock()
                 .expect("lock poisoned — prior panic corrupted state");
 
+            arc.assert_within_root(&file_path_clone)?;
+
             Self::assert_exists_no_symlink(&file_path_clone, &name)?;
 
+            #[allow(clippy::disallowed_methods)]
             std::fs::remove_file(&file_path_clone)?;
 
             let mut index = arc.index_from_head(&repo)?;
@@ -488,10 +493,7 @@ impl MemoryRepo {
         dest_scope: &Scope,
     ) -> Result<Memory, MemoryError> {
         let source_path = self.memory_path(source_name, source_scope);
-        self.assert_within_root(&source_path)?;
-
         let dest_path = self.memory_path(dest_name, dest_scope);
-        self.assert_within_root(&dest_path)?;
 
         let arc = Arc::clone(self);
         let source_name = source_name.to_string();
@@ -510,6 +512,9 @@ impl MemoryRepo {
                 .inner
                 .lock()
                 .expect("lock poisoned — prior panic corrupted state");
+
+            arc.assert_within_root(&source_path)?;
+            arc.assert_within_root(&dest_path)?;
 
             Self::assert_exists_no_symlink(&source_path, &source_name)?;
 
@@ -530,10 +535,12 @@ impl MemoryRepo {
             // reset hard to HEAD so we never leave dirty/untracked files.
             let commit_result = (|| -> Result<git2::Oid, MemoryError> {
                 if let Some(parent) = dest_path.parent() {
+                    #[allow(clippy::disallowed_methods)]
                     std::fs::create_dir_all(parent)?;
                 }
                 let markdown = dest.to_markdown()?;
                 arc.write_memory_file(&dest_path, markdown.as_bytes())?;
+                #[allow(clippy::disallowed_methods)]
                 std::fs::remove_file(&source_path)?;
 
                 let mut index = arc.index_from_head(&repo)?;
@@ -584,13 +591,13 @@ impl MemoryRepo {
         scope: &Scope,
     ) -> Result<Memory, MemoryError> {
         let file_path = self.memory_path(name, scope);
-        self.assert_within_root(&file_path)?;
 
         let arc = Arc::clone(self);
         let name = name.to_string();
         let span = tracing::debug_span!("repo.read", name = %name);
         let result = traced_spawn_blocking(move || -> Result<Memory, MemoryError> {
             let _enter = span.entered();
+            arc.assert_within_root(&file_path)?;
             Self::assert_exists_no_symlink(&file_path, &name)?;
             let raw = arc.read_memory_file(&file_path)?;
             Memory::from_markdown(&raw)
@@ -662,6 +669,7 @@ impl MemoryRepo {
                         if ft.is_dir() {
                             collect_md_files(&path, out)?;
                         } else if path.extension().and_then(|e| e.to_str()) == Some("md") {
+                            #[allow(clippy::disallowed_methods)]
                             let raw = std::fs::read_to_string(&path)?;
                             match Memory::from_markdown(&raw) {
                                 Ok(m) => out.push(m),
@@ -1216,6 +1224,7 @@ impl MemoryRepo {
             // and symlink protections.
             self.assert_within_root(&info.path)?;
             if let Some(parent) = info.path.parent() {
+                #[allow(clippy::disallowed_methods)]
                 std::fs::create_dir_all(parent)?;
             }
             self.write_memory_file(&info.path, &chosen_bytes)?;
@@ -1823,7 +1832,7 @@ mod tests {
     #[test]
     fn redact_url_strips_userinfo() {
         assert_eq!(
-            redact_url("https://user:ghp_token123@github.com/org/repo.git"),
+            redact_url("https://user:test_token123@github.com/org/repo.git"),
             "https://[REDACTED]@github.com/org/repo.git"
         );
     }
