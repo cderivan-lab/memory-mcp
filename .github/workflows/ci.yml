@@ -20,90 +20,17 @@ concurrency:
 
 permissions: {}
 
-env:
-  # Public root CA of the self-hosted Gitea instance, embedded here because a
-  # fresh job container trusts only public roots and actions/checkout runs
-  # before any repository file exists. Safe to publish: a certificate, not a key.
-  # Keep in sync with infra/nomad/certs/clebsong-derivan-root-ca.pem.
-  CLEBSONG_ROOT_CA_PEM: |
-    -----BEGIN CERTIFICATE-----
-    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
-    uM/Ixg==
-    -----END CERTIFICATE-----
-
 jobs:
-  # Formatting is advisory. This job always runs (so `build`'s `needs` stays
-  # satisfiable) but the check itself is opt-in: enable it per run with
-  # workflow_dispatch input `fmt-check`, or permanently with the repository
-  # variable FMT_CHECK=true. The pre-commit hook still runs `cargo fmt --check`
-  # against the author's own toolchain.
   lint:
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
-      # Needed on the self-hosted Gitea instance (internal CA); harmless on
-      # GitHub-hosted runners.
-      - name: Trust the internal CA
-        run: |
-          set -euo pipefail
-          cert="$RUNNER_TEMP/clebsong-root-ca.crt"
-          printf '%s\n' "$CLEBSONG_ROOT_CA_PEM" > "$cert"
-          # Node ships its own bundle and ignores the system store, so every
-          # actions/*.js step (upload-artifact, cache) must be handed the root
-          # explicitly. This used to be guarded by runner.os == 'Linux', which
-          # skipped the step on macOS entirely and made upload-artifact fail
-          # with "unable to verify the first certificate".
-          echo "NODE_EXTRA_CA_CERTS=$cert" >> "$GITHUB_ENV"
-          echo "CURL_CA_BUNDLE=$cert" >> "$GITHUB_ENV"
-          if [ "$(uname -s)" = "Linux" ]; then
-            if [ "$(id -u)" -ne 0 ]; then S=sudo; else S=; fi
-            $S cp "$cert" /usr/local/share/ca-certificates/clebsong-root-ca.crt
-            $S update-ca-certificates
-          else
-            # git and curl on the macOS runner read the system keychain.
-            sudo security add-trusted-cert -d -r trustRoot \
-              -k /Library/Keychains/System.keychain "$cert"
-          fi
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master (2026-03-27)
         with:
-          toolchain: stable
-          # rustfmt/clippy are not in the minimal profile this action installs,
-          # so name them instead of relying on the runner image preinstalling
-          # them (GitHub images do; a bare rustup image does not).
           components: rustfmt
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
@@ -122,29 +49,6 @@ jobs:
         features:
           - ""
     steps:
-      # Needed on the self-hosted Gitea instance (internal CA); harmless on
-      # GitHub-hosted runners.
-      - name: Trust the internal CA
-        run: |
-          set -euo pipefail
-          cert="$RUNNER_TEMP/clebsong-root-ca.crt"
-          printf '%s\n' "$CLEBSONG_ROOT_CA_PEM" > "$cert"
-          # Node ships its own bundle and ignores the system store, so every
-          # actions/*.js step (upload-artifact, cache) must be handed the root
-          # explicitly. This used to be guarded by runner.os == 'Linux', which
-          # skipped the step on macOS entirely and made upload-artifact fail
-          # with "unable to verify the first certificate".
-          echo "NODE_EXTRA_CA_CERTS=$cert" >> "$GITHUB_ENV"
-          echo "CURL_CA_BUNDLE=$cert" >> "$GITHUB_ENV"
-          if [ "$(uname -s)" = "Linux" ]; then
-            if [ "$(id -u)" -ne 0 ]; then S=sudo; else S=; fi
-            $S cp "$cert" /usr/local/share/ca-certificates/clebsong-root-ca.crt
-            $S update-ca-certificates
-          else
-            # git and curl on the macOS runner read the system keychain.
-            sudo security add-trusted-cert -d -r trustRoot \
-              -k /Library/Keychains/System.keychain "$cert"
-          fi
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
@@ -168,29 +72,6 @@ jobs:
         features:
           - ""
     steps:
-      # Needed on the self-hosted Gitea instance (internal CA); harmless on
-      # GitHub-hosted runners.
-      - name: Trust the internal CA
-        run: |
-          set -euo pipefail
-          cert="$RUNNER_TEMP/clebsong-root-ca.crt"
-          printf '%s\n' "$CLEBSONG_ROOT_CA_PEM" > "$cert"
-          # Node ships its own bundle and ignores the system store, so every
-          # actions/*.js step (upload-artifact, cache) must be handed the root
-          # explicitly. This used to be guarded by runner.os == 'Linux', which
-          # skipped the step on macOS entirely and made upload-artifact fail
-          # with "unable to verify the first certificate".
-          echo "NODE_EXTRA_CA_CERTS=$cert" >> "$GITHUB_ENV"
-          echo "CURL_CA_BUNDLE=$cert" >> "$GITHUB_ENV"
-          if [ "$(uname -s)" = "Linux" ]; then
-            if [ "$(id -u)" -ne 0 ]; then S=sudo; else S=; fi
-            $S cp "$cert" /usr/local/share/ca-certificates/clebsong-root-ca.crt
-            $S update-ca-certificates
-          else
-            # git and curl on the macOS runner read the system keychain.
-            sudo security add-trusted-cert -d -r trustRoot \
-              -k /Library/Keychains/System.keychain "$cert"
-          fi
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
@@ -204,10 +85,6 @@ jobs:
       - name: Install cargo-nextest
         run: |
           set -euo pipefail
-          # The runner is x86_64 on cosmos and on GitHub-hosted ubuntu runners,
-          # but arm64 when act runs the job on an Apple Silicon host. A
-          # hardcoded x86_64 prebuilt there dies with "rosetta error: failed to
-          # open elf at /lib64/ld-linux-x86-64.so.2", so pick by machine.
           case "$(uname -m)" in
             x86_64)
               arch=x86_64-unknown-linux-gnu
@@ -229,11 +106,6 @@ jobs:
           $S tar xzf /tmp/cargo-nextest.tar.gz -C /usr/local/bin
       - run: cargo nextest run --workspace --no-fail-fast ${{ matrix.features }}
 
-  # End-to-end: the extension inside a real VS Code host, and a UI run that
-  # clicks the install notification (VS Code exposes no API for that, so it
-  # needs a real driver). Both open a window, hence xvfb. The two large
-  # downloads — VS Code for each runner and ChromeDriver for ExTester — are
-  # cached, so only a lockfile change re-downloads them.
   test-e2e:
     runs-on: ubuntu-latest
     permissions:
@@ -314,9 +186,6 @@ jobs:
             test-resources/chromedriver.log
           retention-days: 3
 
-  # Package the extension the way a release does, so broken vsce packaging or a
-  # stale manifest fails on the PR instead of on the tag. No binary is staged
-  # here, so this VSIX is a packaging check rather than a shippable artifact.
   vsix:
     runs-on: ubuntu-latest
     permissions:
@@ -371,9 +240,6 @@ jobs:
           path: "*.vsix"
           retention-days: 1
 
-  # Catch cross-platform compilation failures before they reach the release pipeline.
-  # Mirrors the release.yml publish-binaries matrix (minus Windows — see #42).
-  # Only runs on main-targeted PRs and pushes — stacked PRs skip this.
   cross-compile:
     if: github.event_name != 'pull_request' || github.base_ref == 'main'
     strategy:
@@ -470,15 +336,10 @@ jobs:
         with:
           command: check
 
-  # Test coverage: Rust with llvm-cov (default + all-features), JS/TS with c8.
-  # Reports are generated in lcov format and uploaded as artifacts.
   coverage:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      # Needed for codecov/fellowship to upload coverage reports.
-      # Remove if not using a coverage reporter.
-      # id-token: write  # for codecov
     strategy:
       fail-fast: false
       matrix:
