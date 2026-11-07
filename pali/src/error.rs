@@ -8,6 +8,10 @@ pub enum MemoryError {
     #[error("git error: {0}")]
     Git(#[from] git2::Error),
 
+    /// A read-only git operation (backed by gix) failed.
+    #[error("git error: {0}")]
+    Gix(String),
+
     /// The embedding backend failed to produce vectors.
     #[error("embedding error: {0}")]
     Embedding(String),
@@ -101,5 +105,21 @@ impl From<MemoryError> for rmcp::model::ErrorData {
             message: std::borrow::Cow::Owned(err.to_string()),
             data: None,
         }
+    }
+}
+
+impl MemoryError {
+    /// Wrap a `gix` error.
+    ///
+    /// `gix::Error` is a boxed trait object, so it cannot be used with
+    /// `thiserror`'s `#[from]`; the message is what every caller surfaces.
+    pub(crate) fn gix(error: impl std::fmt::Display) -> Self {
+        MemoryError::Gix(error.to_string())
+    }
+}
+
+impl From<gix::Error> for MemoryError {
+    fn from(error: gix::Error) -> Self {
+        MemoryError::Gix(error.to_string())
     }
 }

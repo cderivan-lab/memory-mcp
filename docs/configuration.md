@@ -16,11 +16,22 @@ pre-0.19 artifact and its former environment names.
 | Flag | Environment variable | Default | Purpose |
 | --- | --- | --- | --- |
 | `--repo-path` | `PALI_REPO_PATH` | `~/.memory-mcp` | Git-backed memory repository |
-| `--config` | `PALI_CONFIG` | `~/.config/memory-mcp/config.toml` | TOML config file for per-scope remote mapping; empty string disables config loading |
+| `--config` | `PALI_CONFIG` | platform config dir (see below) | TOML config file for per-scope remote mapping; empty string disables config loading |
 | `--remote-url` | `PALI_REMOTE_URL` | unset | Git remote: HTTPS/SSH URL or an absolute path to a local repository; omit for local-only mode |
 | `--branch` | `PALI_BRANCH` | `main` | Branch used for push and pull |
 | `--require-remote-sync` | `PALI_REQUIRE_REMOTE_SYNC` | `false` | Pull every repository before startup index freshness is decided; requires `--remote-url` |
 | `--recall-log-busy-timeout` | `PALI_RECALL_LOG_BUSY_TIMEOUT` | `5` | SQLite lock wait in seconds |
+
+The VS Code extension exposes `--require-remote-sync` as `pali.remoteSync`
+(default `false`) and passes it to the server as `PALI_REQUIRE_REMOTE_SYNC`.
+When enabled, the server pulls every repository before the startup
+index-freshness decision and refuses to start when `pali.remoteUrl` is empty.
+
+The config file is `memory-mcp/config.toml` under the platform's config
+directory: `~/.config/memory-mcp/config.toml` on Linux,
+`~/Library/Application Support/memory-mcp/config.toml` on macOS, and
+`%APPDATA%\memory-mcp\config.toml` on Windows. `PALI_CONFIG` overrides it; an
+empty value disables config loading.
 
 `pali serve` serves one MCP session over stdin/stdout. Diagnostics stay on
 stderr so stdout carries only MCP frames. Each concurrent client needs its own
@@ -44,9 +55,9 @@ three places:
   channel with a timestamp and level prefix.
 
 Setting `pali.logLevel` to `debug` is the usual first step when diagnosing
-recall misses or git sync problems. Security-relevant events (auth failures,
-invalid inputs) are logged at `warn` or higher regardless of level, and no
-log line ever carries a token, credential, or memory content.
+recall misses or git sync problems. Security-relevant events (invalid inputs,
+rejected repository paths) are logged at `warn` or higher regardless of level,
+and no log line ever carries a token, credential, or memory content.
 
 ## Embedding work
 
@@ -54,6 +65,15 @@ log line ever carries a token, credential, or memory content.
 | --- | --- | --- | --- |
 | `--embed-timeout-secs` | `PALI_EMBED_TIMEOUT_SECS` | `30` | Maximum time for one embedding call |
 | `--embed-queue-size` | `PALI_EMBED_QUEUE_SIZE` | `64` | Bounded embedding-worker queue |
+| `--no-model-download` | `PALI_NO_MODEL_DOWNLOAD` | `false` | When true, skip automatic download and fail if model files are missing |
+
+### HuggingFace Hub configuration
+
+The automatic model download uses the [hf-hub](https://docs.rs/hf-hub) crate with
+environment variables documented there:
+
+- `HF_HOME` — cache directory for downloaded model files (default: `~/.cache/huggingface`)
+- `HF_ENDPOINT` — override the Hub API URL (useful for self-hosted mirrors)
 
 ## Git credentials
 
@@ -71,57 +91,29 @@ the variable to an empty string to fall back to the credential helper.
 `PALI_REMOTE_URL` also accepts an absolute path to a local or bare repository.
 Git resolves path remotes directly, with no authentication.
 
-Select storage explicitly when needed:
-
-```bash
-pali auth login --store keyring
-pali auth login --store file
-pali auth login --store stdout
-```
-
-At runtime, token resolution checks `PALI_GITHUB_TOKEN`, then the token
-file, then the system keyring. Tokens are never accepted as CLI arguments.
-
-This authentication config is for outbound Git synchronization. Federated
-memory reads do not use it and never borrow a server credential.
-
-## Federated sibling stores
-
-Name this Pali instance and its trusted sibling MCP endpoints in the same TOML
-file used for per-scope remotes:
-
-```toml
-store_id = "personal"
-straddle_timeout_ms = 2000
-
-[siblings]
-fcc = "https://friends-collective-conscious.svc.echoes/mcp"
-lcc = "https://collective-conscious.svc.echoes/mcp"
-```
-
-Then call `read` with `straddle: true` to query the local store and all
-siblings concurrently. The response keeps each fragment under its `store_id`
-and distinguishes `not_found`, `unreachable`, and `identity_unavailable`.
-Ordinary `read` calls retain their existing response shape.
-
-Sibling endpoints are topology, not authority. They must use HTTPS (except
-loopback HTTP for tests) and cannot contain credentials, query parameters, or
-fragments. A straddled request forwards the caller's inbound bearer token
-opaquely to each configured sibling. Without that caller delegation, Pali
-returns the local result, marks each sibling `identity_unavailable`, and makes
-no sibling requests.
+The CLI has no `auth` subcommand: it exposes `serve`, `warmup`,
+`recall-stats`, `scan`, `index`, and `dataset`. There is no token file or
+keyring store — a token comes from `PALI_GIT_TOKEN` or from git's own
+credential configuration.
 
 ## Embedding model
 
 Pali computes embeddings locally with Candle and BGE-small-en-v1.5
-(384 dimensions). Pali does not download the model files itself: fetch them
-once with `scripts/fetch-model.sh`, then run `pali warmup` to verify they load
-before starting the server.
+(384 dimensions). On first run, if the model files are missing locally,
+Pali automatically downloads them from HuggingFace Hub. The files are cached
+under `HF_HOME` (defaults to `~/.cache/huggingface/hub/models--BAAI--bge-small-en-v1.5`)
+and respect the `HF_ENDPOINT` environment variable for self-hosted Hub mirrors.
+Download progress bars are suppressed for headless operation; status is logged via tracing.
 
 Model files are resolved from, in order:
 
 1. `PALI_MODEL_DIR` — a directory containing `config.json`, `tokenizer.json`,
-   and `model.safetensors`
+   and `model.safetensors`. The VS Code extension exports this from the
+   `pali.modelPath` setting (or, when that is empty, from the model it
+   auto-installed), so setting `pali.modelPath` in VS Code is the
+   configuration-side equivalent. A directory missing any of the files is
+   reported in an error notification and ignored, so the server starts on the
+   model the extension installed instead of failing with an opaque error.
 2. `<current-working-directory>/models/bge-small-en-v1.5` — the VS Code
    extension starts the server from the workspace folder, so a model vendored
    in the repository (or fetched there) is found without extra configuration

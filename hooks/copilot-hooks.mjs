@@ -193,15 +193,6 @@ function readTranscript(path) {
   return { turns, tools };
 }
 
-function dayOf(turns) {
-  for (const turn of turns) {
-    if (!turn.timestamp) continue;
-    const date = new Date(turn.timestamp);
-    if (!Number.isNaN(date.getTime())) return date.toISOString().slice(0, 10);
-  }
-  return new Date().toISOString().slice(0, 10);
-}
-
 function gitContext(cwd) {
   try {
     const branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
@@ -292,67 +283,6 @@ function hasContent(session) {
  * Render the memory body. Returns null when the transcript has no user request:
  * a memory with no question in it is not worth an embedding.
  */
-function buildDigest({ turns, tools }, { scope, sessionId, cwd }) {
-  const requests = [];
-  for (const turn of turns) {
-    if (turn.role !== "user") continue;
-    const request = collapse(turn.content).slice(0, LIMITS.requestChars);
-    if (!request) continue;
-    if (requests[requests.length - 1] === request) continue;
-    requests.push(request);
-    if (requests.length >= LIMITS.requests) break;
-  }
-  if (!requests.length) return null;
-
-  const finalMessage = [...turns].reverse().find((turn) => turn.role === "assistant");
-  const outcome = finalMessage ? finalMessage.content.trim().slice(0, LIMITS.outcomeChars) : "";
-  const userTurns = turns.filter((turn) => turn.role === "user").length;
-  const assistantTurns = turns.length - userTurns;
-  const git = gitContext(cwd);
-
-  const lines = [
-    `# Copilot session — ${scope} — ${dayOf(turns)}`,
-    "",
-    "Auto-captured from a VS Code / Copilot CLI session transcript when the agent stopped.",
-    "",
-    `- Harness: copilot-cli`,
-    `- Scope: ${scope}`,
-    `- Session: ${sessionId || "unknown"}`,
-    `- Turns: ${userTurns} user / ${assistantTurns} assistant`,
-    `- Tool calls: ${tools.length}`,
-  ];
-  if (git) lines.push(`- Checkout: ${git}`);
-
-  lines.push("", "## Requests", "");
-  requests.forEach((request, index) => lines.push(`${index + 1}. ${request}`));
-
-  const files = collectFiles(tools, cwd);
-  if (files.length) {
-    lines.push("", "## Files modified", "");
-    files.forEach((file) => lines.push(`- \`${file}\``));
-  }
-
-  const commands = collectCommands(tools);
-  if (commands.length) {
-    lines.push("", "## Commands run", "");
-    commands.forEach((command, index) => lines.push(`${index + 1}. \`${command}\``));
-  }
-
-  const failures = collectFailures(tools);
-  if (failures.length) {
-    lines.push("", "## Failures", "");
-    failures.forEach((failure) => lines.push(`- ${failure}`));
-  }
-
-  const activity = toolActivity(tools);
-  if (activity) lines.push("", "## Tool activity", "", activity);
-
-  if (outcome) lines.push("", "## Final assistant message", "", outcome);
-
-  return lines.join("\n").slice(0, LIMITS.contentChars);
-}
-
-/** Stable memory name for one session, keyed by day + session id. */
 function sessionName({ day, sessionId, transcriptPath }) {
   const suffix =
     String(sessionId ?? "")

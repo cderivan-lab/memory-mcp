@@ -1,46 +1,72 @@
 # Specification: Extension Icon Generation
 
-## Scope
+## ADDED Requirements
 
-VS Code extension icon generation and packaging.
-
-## Requirements
-
-### REQ-301: Generate SVG Icon
+### Requirement: REQ-301 Generate SVG Icon
 
 - **ID**: REQ-301
 - **Description**: `generate-icon.mjs` creates `icon.svg` with neural network design
 - **Rationale**: Scalable source asset
 
-### REQ-302: Generate PNG Icon
+#### Scenario: SVG icon generation
+
+- **WHEN** the icon generation script runs
+- **THEN** `icon.svg` is created with neural network design
+
+### Requirement: REQ-302 Generate PNG Icon
 
 - **ID**: REQ-302
 - **Description**: `generate-icon.mjs` uses sharp to create 128x128 `icon.png`
 - **Rationale**: VS Code marketplace requires PNG
 
-### REQ-303: Build Integration
+#### Scenario: PNG icon generation
+
+- **WHEN** sharp generates the PNG
+- **THEN** `icon.png` is 128x128
+
+### Requirement: REQ-303 Build Integration
 
 - **ID**: REQ-303
 - **Description**: `npm run prepare` executes icon generation automatically
 - **Rationale**: Zero-maintenance icon at install/pack time
 
-### REQ-304: Package.json Icon Field
+#### Scenario: Build integration
+
+- **WHEN** `npm run prepare` is run
+- **THEN** icon generation is executed automatically
+
+### Requirement: REQ-304 Package.json Icon Field
 
 - **ID**: REQ-304
 - **Description**: `package.json` declares `"icon": "icon.png"`
 - **Rationale**: VS Code reads this for marketplace display
 
-### REQ-305: Dev Dependency Only
+#### Scenario: Icon field
+
+- **WHEN** package.json is parsed
+- **THEN** it declares `"icon": "icon.png"`
+
+### Requirement: REQ-305 Dev Dependency Only
 
 - **ID**: REQ-305
 - **Description**: `sharp` only in `devDependencies`
 - **Rationale**: Not needed at runtime, reduces vsix size
 
-### REQ-306: Gitignore PNG
+#### Scenario: Dev dependency
+
+- **WHEN** dependencies are installed
+- **THEN** `sharp` is only in devDependencies
+
+### Requirement: REQ-306 Gitignore PNG
 
 - **ID**: REQ-306
 - **Description**: `icon.png` in `.gitignore`, `icon.svg` committed
 - **Rationale**: Generated artifacts not in repo; source reviewable
+
+#### Scenario: Gitignore configuration
+
+- **WHEN** .gitignore is checked
+- **THEN** `icon.png` is listed, `icon.svg` is committed
 
 ## Icon Design Spec
 

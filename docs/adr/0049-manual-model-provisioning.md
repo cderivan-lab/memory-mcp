@@ -1,11 +1,21 @@
 # ADR-0049: Manual embedding model provisioning (drop hf-hub)
 
 ## Status
+
 Accepted. The Dockerfile, Dockerfile.ci, and CI workflow clauses are
 superseded by [ADR-0050](0050-minimal-local-core.md); manual model
 provisioning stands.
 
+> **Superseded:** ADR-0051 re-introduces automatic HuggingFace model download
+> as the default behavior. The "no automatic download" clause below is
+> superseded; `PALI_MODEL_DIR` still takes precedence and manual provisioning
+> via `scripts/fetch-model.sh` remains the documented fallback for
+> air-gapped or pre-baked deployments. The Dockerfile, Dockerfile.ci, and CI
+> workflow clauses (pre-baking the model in the build stage, caching by
+> `scripts/fetch-model.sh` hash) remain valid and are unchanged.
+
 ## Context
+
 ADR-0016 chose candle-core/candle-transformers for pure-Rust BERT inference
 and the `hf-hub` crate to fetch BGE-small-en-v1.5 from HuggingFace Hub on
 first use, caching the files under `HF_HOME`. ADR-0014 built on that by
@@ -50,6 +60,7 @@ Alternatives considered:
 3. **Manual download into a conventional local directory.** Chosen.
 
 ## Decision
+
 Remove the `hf-hub` dependency. `CandleEmbeddingEngine` loads
 `config.json`, `tokenizer.json`, and `model.safetensors` from a plain local
 directory, resolved by `model_dir()` in `src/embedding/candle.rs`:
@@ -95,6 +106,7 @@ script's hash, replacing the previous `~/.cache/huggingface` cache) before
 running tests or building either Dockerfile.
 
 ## Consequences
+
 - `Cargo.lock` drops 70 crate names entirely (diffed `name = "..."` lines
   before/after; none of the 70 appear at any version in the new lockfile) —
   `hf-hub`, `hf-xet`, `xet-client`, `xet-data`, `xet-core-structures`,

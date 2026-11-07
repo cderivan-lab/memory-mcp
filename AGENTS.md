@@ -64,6 +64,11 @@ The hook runs, in order:
 
 ## CI and pull requests
 
+- `cargo fmt --check` is advisory in CI: the `lint` job runs it only when the
+  `fmt-check` workflow-dispatch input is set or the `FMT_CHECK` repository
+  variable is `true`. rustfmt's line breaking changes between releases, so the
+  runner's toolchain can reformat lines the author's toolchain accepts. The
+  pre-commit hook is the formatting gate.
 - `.github/workflows/release.yml` owns tag pushes: it builds the Linux and universal macOS binaries plus one VSIX per platform and attaches them to the release. `.github/workflows/build-binaries.yml` builds the same binary set on `workflow_dispatch` for ad-hoc use (including Windows) and never uploads to a release. The remaining gates in `CONTRIBUTING.md` (fmt, clippy, docs, nextest, feature checks) are run locally and recorded in the PR.
 - PR titles use an allowed Conventional Commit type, `!` for a breaking change, and no angle brackets.
 - If workflows are reintroduced, pin third-party actions to full commit SHAs, preserve deny-by-default and least-privilege permissions, and never run untrusted PR code through `pull_request_target`.
@@ -89,3 +94,4 @@ For a design decision where alternatives were seriously weighed, add an ADR in `
 5. Repeat until an independent review of the exact current head reports zero findings at or above Low severity.
 
 The maintainer remains the merge latch. A green test run or an author's self-review is not merge authorization.
+

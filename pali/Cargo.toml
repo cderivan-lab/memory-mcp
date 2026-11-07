@@ -1,6 +1,6 @@
 [package]
 name = "pali"
-version = "1.0.1"
+version = "1.1.0"
 edition = "2024"
 license = "MIT"
 description = "Pali — semantic memory server for AI agents. Pure-Rust embeddings, hybrid retrieval, git-backed storage."
@@ -21,6 +21,10 @@ git2 = { version = "0.21.0", default-features = false, features = [
   "https",
   "vendored-openssl",
 ] }
+# Read-only access (HEAD resolution, tree diffs, blob reads). The network and
+# merge features are deliberately not enabled: libgit2 still owns transport,
+# merge and push. See ADR-0053.
+gix = { version = "0.90", default-features = false, features = ["revision", "sha1", "status"] }
 usearch = "2"
 
 # BM25 keyword search for hybrid retrieval (pure Rust, Lucene-inspired).
@@ -33,6 +37,9 @@ toml = "1.1"
 # Deterministic FactId content digests for chunk-addressable retrieval
 # (ADR-0042). Already in the tree transitively; this makes it direct.
 sha2 = "0.11"
+# Credential-shape detection for the repository scanner. Every pattern is a
+# compile-time constant, so the regex set is compiled once per process.
+regex = "1"
 dirs = "7"
 arc-swap = "1"
 rusqlite = { version = "0.41", features = ["bundled"] }
@@ -55,6 +62,10 @@ async-trait = "0.1"
 
 openssl = { version = "0.10", features = ["vendored"] }
 libz-sys = { version = "1", features = ["static"] }
+
+# HuggingFace Hub client for automatic model download on cache miss.
+# Uses ureq and blocking features for lightweight, headless downloading.
+hf-hub = { version = "1.0.0", default-features = false, features = ["rustls-tls", "blocking"] }
 # Disable defaults to drop onig (C regex library); fancy-regex is a pure-Rust
 # drop-in. esaxx_fast enables the C++ suffix-array builder for BPE tokenizers.
 tokenizers = { version = "0.23", default-features = false, features = [
@@ -67,6 +78,14 @@ tokenizers = { version = "0.23", default-features = false, features = [
 # Platform-correct O_NOFOLLOW; std exposes no constant and hard-coded values
 # silently follow symlinks on the other kernel family.
 libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+# libssh2's default Windows crypto backend (WinCNG) does not implement
+# ed25519 — the common ssh-keygen default. Enable the OpenSSL backend so
+# libssh2 can sign ed25519 userauth requests on Windows. The vendored
+# OpenSSL is already in the tree via git2's vendored-openssl feature
+# (ADR-0023); this is additive and feature-unions with git2/ssh.
+libssh2-sys = { version = "0.3", features = ["openssl-on-win32"] }
 
 [dev-dependencies]
 # Property-based testing for contract invariants (ADR-0042 property ledger).

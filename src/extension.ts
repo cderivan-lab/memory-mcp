@@ -1,20 +1,34 @@
 // Pali Memory VS Code Extension
 // Registers the Pali memory MCP server and installs its GitHub Copilot hooks.
 
+import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { activate as installActivate } from './utils/install';
 import {
   bundledBinaryPath,
+  MODEL_FILES,
+  modelPathProblem,
   resolveModelDir,
   resolvePaliBinary,
 } from './utils/install_pali';
 import type { ResolveResult } from './utils/install_pali';
 import {
   hookConfigBody,
+  installInstructions,
+  installSkill,
   mcpServerDefinition,
+  skillInstallPath,
+  userInstructionsPath,
+  workspaceBootstrapCommand,
+  workspaceBootstrapSummary,
   ExtensionSettings,
+} from './utils/lib';
+import type {
+  WorkspaceBootstrapCommand,
+  WorkspaceBootstrapKind,
 } from './utils/lib';
 import { log, normalizeLogLevel } from './utils/logger';
 
@@ -42,6 +56,40 @@ async function resolveBinary(
 }
 
 /**
+ * The last unusable `pali.modelPath` reported, so the provider and every hook
+ * rewrite do not repeat the same notification.
+ */
+let reportedModelPath: string | undefined;
+
+/**
+ * Accept `pali.modelPath` only when the directory holds the model files the
+ * server loads. A bad value is reported once and withheld from the server and
+ * the hooks: passing it on would only surface later as an opaque startup
+ * failure, and the server can still start on the installed model.
+ */
+async function usableModelPath(configured: string): Promise<string | undefined> {
+  if (!configured) {
+    reportedModelPath = undefined;
+    return undefined;
+  }
+  const problem = await modelPathProblem(configured);
+  if (!problem) {
+    reportedModelPath = undefined;
+    return configured;
+  }
+  if (reportedModelPath !== configured) {
+    reportedModelPath = configured;
+    const message =
+      `Pali: pali.modelPath is not usable — ${problem}. ` +
+      `The server needs ${MODEL_FILES.join(', ')}. ` +
+      'Fix the setting, or clear it to use the installed model.';
+    log.error(message);
+    void vscode.window.showErrorMessage(message);
+  }
+  return undefined;
+}
+
+/**
  * Read settings for the hooks and the server definition. The installed model
  * directory travels with the same binary resolution.
  */
@@ -57,44 +105,44 @@ async function settings(
     binPath: binary.path ?? configured,
     repoPath: String(config.get('repoPath') || '').trim(),
     remoteUrl: String(config.get('remoteUrl') || '').trim(),
+    remoteSync: config.get<boolean>('remoteSync') ?? false,
     branch: String(config.get('branch') || 'main').trim() || 'main',
     scope: String(config.get('scope') || '').trim(),
     modelDir: modelDir ?? undefined,
+    modelPath: await usableModelPath(String(config.get('modelPath') || '').trim()),
     logLevel: normalizeLogLevel(config.get('logLevel')),
+    scanBlame: Boolean(config.get('scanBlame')),
+    scanMaxFileBytes: Number(config.get('scanMaxFileBytes')) || undefined,
+    scanSaveMemories: config.get<boolean>('scanSaveMemories') ?? true,
   };
 }
 
-function workspaceFolder(): vscode.WorkspaceFolder | undefined {
-  const folders = vscode.workspace.workspaceFolders;
-  return folders && folders.length ? folders[0] : undefined;
+/**
+ * The user-level Copilot hooks file. VS Code reads `<home>/.copilot/hooks/*.json`
+ * for every workspace, so one install covers every project instead of leaving
+ * a `.github/hooks/pali.json` copy behind in each one. `pali.scope` (or the
+ * hook's own git-repo derivation) still keeps memories per project.
+ *
+ * `PALI_HOOKS_DIR` overrides the directory so tests never write the real one.
+ */
+function hookConfigPath(): string {
+  const dir =
+    process.env.PALI_HOOKS_DIR || path.join(os.homedir(), '.copilot', 'hooks');
+  return path.join(dir, 'pali.json');
 }
 
-function hookConfigPath(folder: vscode.WorkspaceFolder): string {
-  return path.join(folder.uri.fsPath, '.github', 'hooks', 'pali.json');
-}
-
-/** Write .github/hooks/pali.json, leaving it untouched when it is current. */
+/** Write the user-level hooks file, leaving it untouched when it is current. */
 async function installHooks(
   context: vscode.ExtensionContext,
   quiet: boolean,
 ): Promise<boolean> {
-  const folder = workspaceFolder();
-  if (!folder) {
-    if (!quiet) {
-      vscode.window.showWarningMessage(
-        'Pali: open a workspace folder to install the hooks.',
-      );
-    }
-    return false;
-  }
-
-  const target = hookConfigPath(folder);
+  const target = hookConfigPath();
   const body = hookConfigBody(context.extensionPath, await settings(context));
   let current = '';
   try {
     current = fs.readFileSync(target, 'utf8');
-  } catch {
-    // Missing file: write it below.
+  } catch(error) {
+      log.error(`Pali: could not read hook config: ${(error as Error).message}`);
   }
   if (current === body) return true;
 
@@ -150,6 +198,128 @@ async function updateBinPathSetting(
   serverChanged.fire();
 }
 
+/** One `pali scan` / `pali index` run, from spawn to exit. */
+interface BootstrapOutcome {
+  code: number | null;
+  stdout: string;
+  cancelled: boolean;
+}
+
+/**
+ * Run a bootstrap subcommand, mirroring its stderr (the CLI's tracing output)
+ * into the output channel. Cancelling the progress notification kills the
+ * child, so a long `index` run does not have to finish to be abandoned.
+ */
+function runBootstrap(
+  invocation: WorkspaceBootstrapCommand,
+  output: vscode.OutputChannel,
+  cancellation: vscode.CancellationToken,
+): Promise<BootstrapOutcome> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(invocation.command, invocation.args, {
+      env: { ...process.env, ...invocation.env },
+      windowsHide: true,
+    });
+    let stdout = '';
+    let cancelled = false;
+    const subscription = cancellation.onCancellationRequested(() => {
+      cancelled = true;
+      child.kill();
+    });
+
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on('data', (chunk: Buffer) => {
+      output.append(chunk.toString());
+    });
+    child.on('error', (error) => {
+      subscription.dispose();
+      reject(error);
+    });
+    child.on('close', (code) => {
+      subscription.dispose();
+      resolve({ code, stdout, cancelled });
+    });
+  });
+}
+
+/**
+ * Run `pali scan` or `pali index` against the first workspace folder. The
+ * subcommands read the folder and write only under its `.pali/` artifacts
+ * directory, so this never touches the memory repository.
+ */
+async function bootstrapWorkspace(
+  kind: WorkspaceBootstrapKind,
+  context: vscode.ExtensionContext,
+  output: vscode.OutputChannel,
+): Promise<void> {
+  const labels: Record<WorkspaceBootstrapKind, string> = {
+    scan: 'Scan workspace',
+    index: 'Index workspace',
+  };
+  const label = labels[kind];
+  const folder = vscode.workspace.workspaceFolders?.[0];
+  if (!folder) {
+    void vscode.window.showErrorMessage(
+      `Pali: open a folder before running "Pali: ${label}".`,
+    );
+    return;
+  }
+
+  const resolved = await resolveBinary(context);
+  if (!resolved.path) {
+    void vscode.window.showErrorMessage(
+      'Pali: the pali binary was not found. Run "Pali: Install pali" first.',
+    );
+    return;
+  }
+
+  const invocation = workspaceBootstrapCommand(
+    kind,
+    await settings(context, resolved),
+    folder.uri.fsPath,
+  );
+  output.show(true);
+  output.appendLine(
+    `pali ${kind}: ${invocation.command} ${invocation.args.join(' ')}`,
+  );
+
+  let outcome: BootstrapOutcome;
+  try {
+    outcome = await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: `Pali: ${label.toLowerCase()} ${path.basename(folder.uri.fsPath)}`,
+        cancellable: true,
+      },
+      (_, cancellation) => runBootstrap(invocation, output, cancellation),
+    );
+  } catch (error) {
+    const message = `Pali: could not run "${invocation.command}": ${(error as Error).message}`;
+    output.appendLine(message);
+    void vscode.window.showErrorMessage(message);
+    return;
+  }
+
+  if (outcome.cancelled) {
+    output.appendLine(`pali ${kind}: cancelled`);
+    return;
+  }
+  if (outcome.code !== 0) {
+    const message =
+      `Pali: ${kind} failed (exit ${outcome.code ?? 'signal'}). ` +
+      'See the "Pali Memory" output for details.';
+    output.appendLine(message);
+    void vscode.window.showErrorMessage(message);
+    return;
+  }
+
+  const message = workspaceBootstrapSummary(kind, outcome.stdout);
+  output.appendLine(message);
+  void vscode.window.showInformationMessage(message);
+}
+
 function activate(context: vscode.ExtensionContext): void {
   // Event emitter to signal VS Code to re-request the MCP server definition
   const serverChanged = new vscode.EventEmitter<void>();
@@ -203,6 +373,10 @@ function activate(context: vscode.ExtensionContext): void {
       void refreshServer(context, serverChanged, output)),
     vscode.commands.registerCommand('pali.setToken', setToken),
     vscode.commands.registerCommand('pali.clearToken', clearToken),
+    vscode.commands.registerCommand('pali.scan', () =>
+      bootstrapWorkspace('scan', context, output)),
+    vscode.commands.registerCommand('pali.index', () =>
+      bootstrapWorkspace('index', context, output)),
     vscode.lm?.registerMcpServerDefinitionProvider?.(MCP_PROVIDER_ID, {
       onDidChangeMcpServerDefinitions: serverChanged.event,
       provideMcpServerDefinitions: async (): Promise<vscode.McpServerDefinition[]> => {
@@ -260,6 +434,33 @@ function activate(context: vscode.ExtensionContext): void {
 
   // Install the Copilot hooks
   void installHooks(context, true);
+
+  // Install the agent-facing skill once per user, like the hooks. A missing
+  // source or an unwritable home is reported but never blocks activation.
+  const skill = installSkill(context.extensionPath);
+  if (skill === 'installed') {
+    output.appendLine(`pali: installed skill at ${skillInstallPath()}`);
+  } else if (skill === 'failed') {
+    output.appendLine('pali: could not install the Pali Memory skill');
+  }
+
+  // Copy the always-on memory rule into the user-level instructions folder.
+  // It is a dedicated `*.instructions.md` file, so the user's
+  // `copilot-instructions.md` is never rewritten.
+  const instructions = installInstructions(context.extensionPath);
+  if (instructions === 'installed') {
+    output.appendLine(
+      `pali: installed memory instructions at ${userInstructionsPath()}`,
+    );
+  } else if (instructions === 'missing') {
+    output.appendLine(
+      'pali: memory instructions are missing from this extension build',
+    );
+  } else if (instructions === 'failed') {
+    output.appendLine(
+      `pali: could not install memory instructions at ${userInstructionsPath()}`,
+    );
+  }
 
   // Initialize the pali binary: resolve existing or offer to install. The
   // token getter reads secret storage per download so a token set via

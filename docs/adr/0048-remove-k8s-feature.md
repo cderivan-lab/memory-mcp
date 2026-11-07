@@ -3,6 +3,10 @@
 ## Status
 Accepted
 
+Amended by [ADR-0050](0050-minimal-local-core.md): the keyring, file, and
+stdout token backends and the `pali auth` command were removed with OAuth
+token handling. Only `PALI_GIT_TOKEN` remains.
+
 ## Context
 ADR-0013 added `--store k8s-secret`, feature-gated behind a `k8s` cargo
 feature, to write the GitHub token into an Opaque Kubernetes Secret. It existed
