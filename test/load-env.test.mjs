@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { E2E_ENV_FILE, loadEnv } from "../scripts/load-env.mjs";
+import { E2E_ENV_FILE, loadEnv, loadE2eEnv } from "../scripts/load-env.mjs";
 
 // Every key is namespaced so a developer's real `.env` or shell export cannot
 // supply a value and make an assertion pass vacuously.
@@ -88,4 +88,28 @@ test("the e2e env file is pinned at the repository root", () => {
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
   assert.ok(isAbsolute(E2E_ENV_FILE), "the path must not depend on the cwd");
   assert.equal(E2E_ENV_FILE, join(repoRoot, ".env"));
+});
+
+test("loadE2eEnv loads the pinned e2e env file and returns its path", () => {
+  const saved = process.env[PLAIN];
+  let backup;
+  let hadBackup = false;
+  try {
+    backup = readFileSync(E2E_ENV_FILE, "utf8");
+    hadBackup = true;
+  } catch {
+    // No pre-existing .env; restore by removing it.
+  }
+  delete process.env[PLAIN];
+  try {
+    writeFileSync(E2E_ENV_FILE, `${PLAIN}=e2e-loaded\n`, "utf8");
+    const result = loadE2eEnv();
+    assert.equal(result, E2E_ENV_FILE, "loadE2eEnv returns the pinned env file path");
+    assert.equal(process.env[PLAIN], "e2e-loaded");
+  } finally {
+    if (saved === undefined) delete process.env[PLAIN];
+    else process.env[PLAIN] = saved;
+    if (hadBackup) writeFileSync(E2E_ENV_FILE, backup, "utf8");
+    else rmSync(E2E_ENV_FILE);
+  }
 });

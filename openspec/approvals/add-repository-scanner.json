@@ -1,0 +1,25 @@
+{
+  "changeId": "add-repository-scanner",
+  "status": "in_progress",
+  "approvals": [
+    {
+      "approver": "Clebson Derivan",
+      "approvedAt": "2026-11-07T14:59:15.966Z"
+    }
+  ],
+  "rejections": [],
+  "history": [
+    {
+      "action": "request_approval",
+      "by": "user",
+      "at": "2026-11-07T14:58:19.525Z"
+    },
+    {
+      "action": "approved",
+      "by": "Clebson Derivan",
+      "at": "2026-11-07T14:59:15.966Z"
+    }
+  ],
+  "requestedAt": "2026-11-07T14:58:19.525Z",
+  "requestedBy": "user"
+}

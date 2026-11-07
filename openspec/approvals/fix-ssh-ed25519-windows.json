@@ -1,0 +1,25 @@
+{
+  "changeId": "fix-ssh-ed25519-windows",
+  "status": "in_progress",
+  "approvals": [
+    {
+      "approver": "Clebson Derivan",
+      "approvedAt": "2026-11-07T14:59:31.370Z"
+    }
+  ],
+  "rejections": [],
+  "history": [
+    {
+      "action": "request_approval",
+      "by": "user",
+      "at": "2026-11-07T14:58:05.583Z"
+    },
+    {
+      "action": "approved",
+      "by": "Clebson Derivan",
+      "at": "2026-11-07T14:59:31.370Z"
+    }
+  ],
+  "requestedAt": "2026-11-07T14:58:05.583Z",
+  "requestedBy": "user"
+}

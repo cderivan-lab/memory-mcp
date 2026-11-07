@@ -11,6 +11,7 @@ const {
   installSkill,
   skillInstallPath,
   skillSourcePath,
+  userSkillsDir,
 } = require("../out/utils/lib");
 
 const root = join(__dirname, "..");
@@ -87,4 +88,29 @@ test("uninstall removes the installed skill only when unchanged", async () => {
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test("a write failure is reported as failed", async () => {
+  const extensionRoot = join(tmpdir(), `pali-skill-ext-fail-${Date.now()}`);
+  const skills = join(tmpdir(), `pali-skill-home-fail-${Date.now()}`);
+  const source = skillSourcePath(extensionRoot);
+  await mkdir(join(extensionRoot, "skills", "pali-memory"), { recursive: true });
+  await writeFile(source, "name: pali-memory\n", "utf8");
+  try {
+    // A directory in the skill's place makes writeFileSync throw, so the
+    // installer cannot leave the file and must report the failure.
+    await mkdir(skillInstallPath(skills), { recursive: true });
+    assert.equal(installSkill(extensionRoot, skills), "failed");
+  } finally {
+    await rm(extensionRoot, { recursive: true, force: true });
+    await rm(skills, { recursive: true, force: true });
+  }
+});
+
+test("the default install path sits in the user's skills directory", () => {
+  assert.equal(
+    skillInstallPath(),
+    join(userSkillsDir(), "pali-memory", "SKILL.md"),
+    "the installed skill lives under the user's copilot skills directory",
+  );
 });
