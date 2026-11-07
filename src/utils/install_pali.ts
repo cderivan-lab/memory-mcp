@@ -183,20 +183,20 @@ function readBinaryFromTar(tar: Buffer): Buffer | null {
     const type = tar[off + 156];
     if (type === 0x30) {
       const size =
-        parseInt(
+        Number.parseInt(
           tar
             .toString("utf8", off + 124, off + 136)
-            .replace(/\0.*$/, "")
+            .split("\0")[0]
             .trim(),
           8,
         ) || 0;
       return Buffer.from(tar.subarray(off + 512, off + 512 + size));
     }
     const size =
-      parseInt(
+      Number.parseInt(
         tar
           .toString("utf8", off + 124, off + 136)
-          .replace(/\0.*$/, "")
+          .split("\0")[0]
           .trim(),
         8,
       ) || 0;
@@ -226,7 +226,9 @@ export async function extractBinaryFromArchive(
   await fs.writeFile(dest, bytes);
   // The archive carries no permission bits, so restore the exec bit the
   // server needs to start (a no-op for the read-only bit on Windows).
-  await fs.chmod(dest, 0o755);
+  // Use 0o700 rather than 0o755 so the binary stays owner-only: the server
+  // runs as the installing user, and world-readable binaries invite tampering.
+  await fs.chmod(dest, 0o700);
   log.success(`extracted ${bytes.length} bytes of ${binaryName()}`);
   return dest;
 }
@@ -561,7 +563,7 @@ async function readErrorSnippet(response: Response): Promise<string> {
     return Buffer.concat(chunks)
       .subarray(0, ERROR_SNIPPET_BYTES)
       .toString("utf8")
-      .replace(/<[^>]*>/g, " ")
+      .replace(/<[^>]+>/g, " ")
       .replace(/\s+/g, " ")
       .trim();
   } catch {
