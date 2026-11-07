@@ -9,13 +9,18 @@ const {
   mcpServerDefinition,
   getReleaseTarget,
   releaseUrl,
+  workspaceBootstrapCommand,
+  workspaceBootstrapSummary,
 } = require("../out/utils/lib");
 const {
   binaryName,
+  checkUpdates,
   extractBinaryFromArchive,
   installLatest,
   installModel,
+  MODEL_FILES,
   modelDir,
+  modelPathProblem,
   parseLfsPointer,
   prepare,
   releaseAssetName,
@@ -25,12 +30,14 @@ const { log, normalizeLogLevel, rustLogFilter } = require("../out/utils/logger")
 
 const { tmpdir } = require("node:os");
 const { join } = require("node:path");
+const { chmodSync } = require("node:fs");
 const { mkdir, readFile, stat, writeFile, rm } = require("node:fs/promises");
 
 const settings = {
   binPath: "/opt/pali bin/pali",
   repoPath: "/tmp/my repo",
   remoteUrl: "https://example.com/mem.git",
+  remoteSync: true,
   branch: "trunk",
   scope: "org/team",
 };
@@ -80,6 +87,31 @@ test("hook commands carry the configured log level", () => {
   assert.doesNotMatch(bare.powershell, /PALI_HOOK_LOG_LEVEL/);
 });
 
+test("hook commands exit quietly when the extension directory is gone", () => {
+  // Regression: a hook file left behind by uninstall or an update pointed at a
+  // directory VS Code had deleted, so node failed to load the entry point and
+  // every event crashed with MODULE_NOT_FOUND.
+  const entry = buildHookConfig("/ext", settings).hooks.sessionStart[0];
+
+  assert.match(
+    entry.bash,
+    /^\[ -f '\/ext\/hooks\/copilot-hooks\.mjs' \] \|\| exit 0; PALI_BIN=/,
+    "bash must skip the hook when the script is missing",
+  );
+  assert.match(
+    entry.powershell,
+    /^if \(-not \(Test-Path -LiteralPath '\/ext\/hooks\/copilot-hooks\.mjs'\)\) \{ exit 0 \}; \$env:PALI_BIN=/,
+    "PowerShell must skip the hook when the script is missing",
+  );
+
+  // A present script still runs the same event mode.
+  assert.match(entry.bash, /copilot-hooks\.mjs' session-start$/);
+  assert.match(entry.powershell, /copilot-hooks\.mjs' session-start$/);
+
+  // The guard must not hide the profile from the hook environment.
+  assert.match(entry.bash, /PALI_SCOPE='org\/team'/);
+});
+
 test("single quotes are escaped per shell", () => {
   const entry = buildHookConfig("/ext", { ...settings, binPath: "pali's bin" }).hooks.agentStop[0];
 
@@ -102,12 +134,25 @@ test("MCP definition points at the configured stdio server", () => {
     command: "/opt/pali bin/pali",
     args: ["serve"],
     env: {
+      // The server always runs with ANSI colour off; MCP diagnostics are read
+      // as plain text in the output channel.
+      NO_COLOR: "1",
       PALI_BRANCH: "trunk",
       PALI_REPO_PATH: "/tmp/my repo",
       PALI_REMOTE_URL: "https://example.com/mem.git",
+      PALI_REQUIRE_REMOTE_SYNC: "true",
       PALI_GIT_TOKEN: "ghp_example",
     },
   });
+});
+
+test("remoteSync exports PALI_REQUIRE_REMOTE_SYNC only when enabled", () => {
+  const on = mcpServerDefinition(settings, token);
+  // The clap argument is a value-taking bool: `true`/`false`, not `1`.
+  assert.equal(on.env.PALI_REQUIRE_REMOTE_SYNC, "true");
+
+  const off = mcpServerDefinition({ ...settings, remoteSync: false }, token);
+  assert.equal(off.env.PALI_REQUIRE_REMOTE_SYNC, undefined);
 });
 
 test("MCP definition exports the log level as a scoped RUST_LOG filter", () => {
@@ -132,6 +177,134 @@ test("token is passed only for HTTPS remotes", () => {
   const local = mcpServerDefinition({ ...settings, remoteUrl: "/srv/memories.git" }, token);
   assert.equal(local.env.PALI_REMOTE_URL, "/srv/memories.git");
   assert.equal(local.env.PALI_GIT_TOKEN, undefined);
+});
+
+// --- Workspace bootstrap ---------------------------------------------------
+//
+// `Pali: Scan Workspace` and `Pali: Index Workspace` shell out to the CLI's
+// bootstrap subcommands. The invocation is pure so the flags and the model
+// handoff can be pinned without spawning the binary.
+
+test("scan runs against the workspace folder and needs no model", () => {
+  const invocation = workspaceBootstrapCommand("scan", settings, "/work/repo");
+
+  assert.deepEqual(invocation.args, ["scan", "--workspace", "/work/repo"]);
+  assert.equal(invocation.command, "/opt/pali bin/pali");
+  assert.equal(invocation.env.PALI_MODEL_DIR, undefined);
+  // Scan artifacts default to <workspace>/.pali, so no --artifacts is needed
+  // and nothing is written into the memory repository.
+  assert.doesNotMatch(invocation.args.join(" "), /--artifacts/);
+});
+
+test("index hands the embedding model to the CLI", () => {
+  const installed = workspaceBootstrapCommand(
+    "index",
+    { ...settings, modelDir: "/storage/models/bge-small-en-v1.5" },
+    "/work/repo",
+  );
+  assert.deepEqual(installed.args, ["index", "--workspace", "/work/repo"]);
+  assert.equal(installed.env.PALI_MODEL_DIR, "/storage/models/bge-small-en-v1.5");
+
+  // An explicit pali.modelPath wins, matching the server definition.
+  const configured = workspaceBootstrapCommand(
+    "index",
+    { ...settings, modelPath: "/custom/models", modelDir: "/storage/models/bge-small-en-v1.5" },
+    "/work/repo",
+  );
+  assert.equal(configured.env.PALI_MODEL_DIR, "/custom/models");
+});
+
+test("scan carries blame, size, and memory settings", () => {
+  const defaults = workspaceBootstrapCommand(
+    "scan",
+    { ...settings, scanSaveMemories: true, repoPath: "", scope: "" },
+    "/work/repo",
+  );
+  assert.deepEqual(defaults.args, [
+    "scan",
+    "--workspace",
+    "/work/repo",
+    "--save-memories",
+  ]);
+  assert.equal(defaults.env.PALI_MODEL_DIR, undefined, "scanning never loads the model");
+
+  const configured = workspaceBootstrapCommand(
+    "scan",
+    {
+      ...settings,
+      scanSaveMemories: true,
+      scanBlame: true,
+      scanMaxFileBytes: 1048576,
+      repoPath: "/memories",
+      scope: "my-repo",
+    },
+    "/work/repo",
+  );
+  assert.deepEqual(configured.args, [
+    "scan",
+    "--workspace",
+    "/work/repo",
+    "--blame",
+    "--max-file-bytes",
+    "1048576",
+    "--save-memories",
+    "--repo-path",
+    "/memories",
+    "--scope",
+    "my-repo",
+  ]);
+
+  // With saving off, the memory-repository flags stay out entirely.
+  const artifactsOnly = workspaceBootstrapCommand(
+    "scan",
+    { ...settings, scanSaveMemories: false, repoPath: "/memories", scope: "my-repo" },
+    "/work/repo",
+  );
+  assert.deepEqual(artifactsOnly.args, ["scan", "--workspace", "/work/repo"]);
+});
+
+test("every bootstrap subcommand carries the configured log level", () => {
+  for (const kind of ["scan", "index"]) {
+    const invocation = workspaceBootstrapCommand(
+      kind,
+      { ...settings, logLevel: "debug" },
+      "/work/repo",
+    );
+    assert.equal(invocation.env.RUST_LOG, "pali=debug,info", kind);
+  }
+});
+
+test("bootstrap summaries report the artifacts the run produced", () => {
+  assert.equal(
+    workspaceBootstrapSummary(
+      "scan",
+      JSON.stringify({ files: 12, sensitive: 2, findings: 3, report: "/w/.pali/scan.json" }),
+    ),
+    "Pali: scanned 12 files (2 sensitive, 3 potential secrets). Report: /w/.pali/scan.json",
+  );
+  assert.equal(
+    workspaceBootstrapSummary(
+      "index",
+      JSON.stringify({ files: 12, chunks: 40, index: "/w/.pali/index" }),
+    ),
+    "Pali: indexed 40 chunks from 12 files. Index: /w/.pali/index",
+  );
+
+  assert.equal(
+    workspaceBootstrapSummary(
+      "scan",
+      JSON.stringify({
+        repositories: 1,
+        accepted_files: 12,
+        findings: 3,
+        insights: "/w/.pali/insights.json",
+      }),
+    ),
+    "Pali: scanned 12 files (3 findings). Insights: /w/.pali/insights.json",
+  );
+
+  // A binary that prints something other than JSON must not hide its output.
+  assert.equal(workspaceBootstrapSummary("scan", "plain summary\n"), "plain summary");
 });
 
 test("getReleaseTarget maps supported platforms", () => {
@@ -166,8 +339,7 @@ test("resolvePaliBinary finds configured binPath", async () => {
   const binPath = join(binDir, binaryName());
   await mkdir(binDir, { recursive: true });
   await writeFile(binPath, "#!/bin/sh\necho hi\n", "utf8");
-  // eslint-disable-next-line no-bitwise
-  await import("node:fs").then((fs) => fs.chmodSync(binPath, 0o755));
+  chmodSync(binPath, 0o755);
   try {
     const result = await require("../out/utils/lib").resolvePaliBinary(ctx, { binPath });
     assert.equal(result.source, "configured");
@@ -182,8 +354,7 @@ test("resolvePaliBinary finds cached binary in globalStorage", async () => {
   const cached = join(ctx.globalStoragePath, binaryName());
   await mkdir(ctx.globalStoragePath, { recursive: true });
   await writeFile(cached, "#!/bin/sh\necho hi\n", "utf8");
-  // eslint-disable-next-line no-bitwise
-  await import("node:fs").then((fs) => fs.chmodSync(cached, 0o755));
+  chmodSync(cached, 0o755);
   try {
     const result = await require("../out/utils/lib").resolvePaliBinary(ctx, {
       binPath: "pali-nonexistent-xyz",
@@ -201,8 +372,7 @@ test("a bundled binary is preferred over PATH and the cache", async () => {
   const bundled = join(extensionRoot, "out", "bin", binaryName());
   await mkdir(join(extensionRoot, "out", "bin"), { recursive: true });
   await writeFile(bundled, "#!/bin/sh\necho hi\n", "utf8");
-  // eslint-disable-next-line no-bitwise
-  await import("node:fs").then((fs) => fs.chmodSync(bundled, 0o755));
+  chmodSync(bundled, 0o755);
   try {
     const resolved = await require("../out/utils/lib").resolvePaliBinary(
       { globalStoragePath: ctx.globalStoragePath, bundledPath: bundled },
@@ -239,6 +409,47 @@ test("releaseUrl pins a version and keeps the archive layout", () => {
   );
 });
 
+test("update checks ask the REST API for the newest release tag", async () => {
+  // Regression: the API URL was built from the web host, yielding
+  // github.com/api/v3/repos/... — GitHub Enterprise's path, which answers 404
+  // on github.com. Every check came back empty, so no update prompt ever fired.
+  const storage = join(tmpdir(), `pali-test-update-${Date.now()}`);
+  await mkdir(storage, { recursive: true });
+  await writeFile(
+    join(storage, "maintenance.json"),
+    JSON.stringify({ installedVersion: "v1.0.0", checkUpdates: true }),
+    "utf8",
+  );
+
+  const requests = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    requests.push({ url: String(url), headers: init?.headers ?? {} });
+    return new Response(JSON.stringify({ tag_name: "v1.4.0" }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  const updates = [];
+  const ui = makeInstallUi(storage);
+  ui.promptUpdate = async (oldVersion, newVersion) =>
+    updates.push([oldVersion, newVersion]);
+  try {
+    await checkUpdates(true, ui);
+
+    assert.equal(requests.length, 1);
+    assert.equal(
+      requests[0].url,
+      "https://api.github.com/repos/cderivan/memory-mcp/releases/latest",
+    );
+    assert.equal(requests[0].headers.Authorization, "Bearer test-token");
+    assert.deepEqual(updates, [["v1.0.0", "v1.4.0"]], "a newer tag is offered to the user");
+  } finally {
+    globalThis.fetch = originalFetch;
+    await rm(storage, { recursive: true, force: true });
+  }
+});
+
 test("a missing binary is offered for download even when update checks are off", async () => {
   // Regression: the offer used to be gated on `checkUpdates`, so an install
   // with update prompts dismissed could never ask for the binary it needs.
@@ -250,20 +461,18 @@ test("a missing binary is offered for download even when update checks are off",
     storagePath: storage,
     extensionPath: join(tmpdir(), `pali-test-ext-${Date.now()}`),
     error: (message) => assert.fail(`unexpected error: ${message}`),
-    info: () => {},
-    command: () => {},
+    info: () => { },
+    command: () => { },
     choose: async (prompt) => {
       prompts.push(prompt);
       return "Later";
     },
     slow: (_, promise) => promise,
-    progress: (_, __, body) => body(() => {}),
+    progress: (_, __, body) => body(() => { }),
     localize: (message) => message,
     shouldReuse: async () => undefined,
-    promptReload: async () => {},
-    showHelp: async () => {},
-    promptUpdate: async () => {},
-    promptInstall: async () => {},
+    promptReload: async () => { },
+    promptUpdate: async () => { },
   };
   try {
     const result = await prepare(ui, false);
@@ -275,6 +484,57 @@ test("a missing binary is offered for download even when update checks are off",
     assert.equal(result.modelDir, null, "no model prompt without a startable server");
   } finally {
     await rm(storage, { recursive: true, force: true });
+  }
+});
+
+test("a usable pali.modelPath suppresses the model download offer", async () => {
+  // Regression: activation only looked in extension storage, so a user who
+  // provisioned the model through `pali.modelPath` was asked to download it
+  // again on every activation.
+  const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const storage = join(tmpdir(), `pali-test-configured-storage-${suffix}`);
+  const configured = join(tmpdir(), `pali-test-configured-model-${suffix}`);
+  await mkdir(configured, { recursive: true });
+  for (const name of MODEL_FILES) {
+    await writeFile(join(configured, name), "{}\n", "utf8");
+  }
+
+  const prompts = [];
+  const ui = {
+    paliPath: process.execPath,
+    storagePath: storage,
+    extensionPath: join(tmpdir(), `pali-test-ext-${suffix}`),
+    modelPath: configured,
+    error: (message) => assert.fail(`unexpected error: ${message}`),
+    info: () => { },
+    command: () => { },
+    choose: async (prompt) => {
+      prompts.push(prompt);
+      return "Later";
+    },
+    slow: (_, promise) => promise,
+    progress: (_, __, body) => body(() => { }),
+    localize: (message) => message,
+    shouldReuse: async () => undefined,
+    promptReload: async () => { },
+    promptUpdate: async () => { },
+  };
+
+  try {
+    const result = await prepare(ui, false);
+    assert.equal(result.source, "configured");
+    assert.equal(result.modelDir, configured, "the configured model is used");
+    assert.equal(prompts.length, 0, "no download offer for a usable configured model");
+
+    // An unusable path must not suppress the offer: the server cannot start
+    // on it, and the extension reports that problem separately.
+    ui.modelPath = join(configured, "missing");
+    const fallback = await prepare(ui, false);
+    assert.equal(fallback.modelDir, null);
+    assert.equal(prompts.length, 1, "the offer returns when the configured path is unusable");
+  } finally {
+    await rm(storage, { recursive: true, force: true });
+    await rm(configured, { recursive: true, force: true });
   }
 });
 
@@ -291,6 +551,46 @@ test("the model is only considered installed when all three files exist", async 
     assert.equal(await resolveModelDir(storage), dir);
   } finally {
     await rm(storage, { recursive: true, force: true });
+  }
+});
+
+test("an unusable pali.modelPath names what is missing", async () => {
+  const root = join(tmpdir(), `pali-test-model-path-${Date.now()}`);
+  const dir = join(root, "bge-small-en-v1.5");
+  try {
+    assert.match(
+      await modelPathProblem(dir),
+      /does not exist/,
+      "a missing directory is reported",
+    );
+
+    const file = join(root, "not-a-dir");
+    await mkdir(root, { recursive: true });
+    await writeFile(file, "", "utf8");
+    assert.match(await modelPathProblem(file), /not a directory/);
+
+    await mkdir(dir, { recursive: true });
+    const empty = await modelPathProblem(dir);
+    for (const name of MODEL_FILES) {
+      assert.ok(empty.includes(name), `${name} must be reported missing`);
+    }
+
+    await writeFile(join(dir, MODEL_FILES[0]), "{}\n", "utf8");
+    await writeFile(join(dir, MODEL_FILES[1]), "{}\n", "utf8");
+    const partial = await modelPathProblem(dir);
+    assert.ok(!partial.includes(MODEL_FILES[0]), partial);
+    assert.ok(partial.includes(MODEL_FILES[2]), partial);
+
+    await writeFile(join(dir, MODEL_FILES[2]), "weights", "utf8");
+    assert.equal(await modelPathProblem(dir), undefined, "all three files are usable");
+
+    await writeFile(join(dir, MODEL_FILES[2]), "", "utf8");
+    assert.ok(
+      (await modelPathProblem(dir)).includes(MODEL_FILES[2]),
+      "an empty file is not usable",
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
   }
 });
 
@@ -311,15 +611,55 @@ test("an installed model is exported to the server as PALI_MODEL_DIR", () => {
   assert.equal(definition.env.PALI_MODEL_DIR, "/storage/models/bge-small-en-v1.5");
 });
 
+test("pali.modelPath is exported as PALI_MODEL_DIR and wins over the installed model", () => {
+  const configured = mcpServerDefinition(
+    { ...settings, modelPath: "/custom/models/bge-small-en-v1.5" },
+    token,
+  );
+  assert.equal(configured.env.PALI_MODEL_DIR, "/custom/models/bge-small-en-v1.5");
+
+  const both = mcpServerDefinition(
+    { ...settings, modelPath: "/custom/models", modelDir: "/storage/models/bge-small-en-v1.5" },
+    token,
+  );
+  assert.equal(both.env.PALI_MODEL_DIR, "/custom/models");
+});
+
+test("hook commands carry the model directory for the hook-spawned server", () => {
+  const entry = buildHookConfig(
+    "/ext",
+    { ...settings, modelPath: "/custom/models", modelDir: "/storage/models/bge-small-en-v1.5" },
+  ).hooks.sessionStart[0];
+  assert.match(entry.bash, /PALI_MODEL_DIR='\/custom\/models'/);
+  assert.match(entry.powershell, /\$env:PALI_MODEL_DIR='\/custom\/models';/);
+
+  // No modelPath: the installed model dir is used instead.
+  const installed = buildHookConfig(
+    "/ext",
+    { ...settings, modelDir: "/storage/models/bge-small-en-v1.5" },
+  ).hooks.sessionStart[0];
+  assert.match(installed.bash, /PALI_MODEL_DIR='\/storage\/models\/bge-small-en-v1\.5'/);
+
+  // Neither set: no variable, so the server falls back to its own resolution.
+  const bare = buildHookConfig("/ext", settings).hooks.sessionStart[0];
+  assert.doesNotMatch(bare.bash, /PALI_MODEL_DIR/);
+  assert.doesNotMatch(bare.powershell, /PALI_MODEL_DIR/);
+});
+
 test("no token means no credential variable, even for HTTPS", () => {
   const https = mcpServerDefinition({ ...settings, remoteUrl: "https://example.com/mem.git" });
   assert.equal(https.env.PALI_GIT_TOKEN, undefined);
 });
 
 test("MCP definition omits empty optional settings", () => {
-  const definition = mcpServerDefinition({ ...settings, repoPath: "", remoteUrl: "" });
+  const definition = mcpServerDefinition({
+    ...settings,
+    repoPath: "",
+    remoteUrl: "",
+    remoteSync: false,
+  });
 
-  assert.deepEqual(definition.env, { PALI_BRANCH: "trunk" });
+  assert.deepEqual(definition.env, { NO_COLOR: "1", PALI_BRANCH: "trunk" });
 });
 
 // --- Logging ---------------------------------------------------------------
@@ -474,7 +814,7 @@ function makeInstallUi(storage, { token = "test-token", modelAnswer = "Later" } 
     getToken: async () => token,
     error: (message) => calls.errors.push(message),
     info: (message) => calls.infos.push(message),
-    command: () => {},
+    command: () => { },
     choose: async (prompt) => {
       calls.prompts.push(prompt);
       return modelAnswer;
@@ -484,14 +824,52 @@ function makeInstallUi(storage, { token = "test-token", modelAnswer = "Later" } 
     localize: (message) => message,
     shouldReuse: async () => undefined,
     promptReload: async (message) => calls.reloads.push(message),
-    showHelp: async () => {},
-    promptUpdate: async () => {},
-    promptInstall: async () => {},
+    promptUpdate: async () => { },
     calls,
   };
 }
 
-test("installLatest downloads the release zip and extracts the binary", async () => {
+const latestReleaseApiUrl = "https://api.github.com/repos/cderivan/memory-mcp/releases/latest";
+
+function latestReleaseResponse(name, assetUrl) {
+  return new Response(
+    JSON.stringify({ tag_name: "v1.0.0", assets: [{ name, url: assetUrl }] }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  );
+}
+
+test("installLatest reports a latest-release API failure instead of a missing asset", async () => {
+  const storage = join(tmpdir(), `pali-test-release-api-error-${Date.now()}`);
+  await mkdir(storage, { recursive: true });
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (url) => {
+    requests.push(String(url));
+    return new Response("temporarily unavailable", {
+      status: 503,
+      statusText: "Service Unavailable",
+    });
+  };
+  const ui = makeInstallUi(storage);
+  try {
+    await assert.rejects(
+      () => installLatest(ui),
+      (error) => {
+        assert.match(error.message, /release API lookup failed/i);
+        assert.match(error.message, /503/);
+        assert.doesNotMatch(error.message, /Could not find the .* asset/);
+        return true;
+      },
+      "a failed release lookup must not be reported as a missing asset",
+    );
+    assert.deepEqual(requests, [latestReleaseApiUrl]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await rm(storage, { recursive: true, force: true });
+  }
+});
+
+test("installLatest downloads the release asset through the authenticated API and completes setup", async () => {
   const storage = join(tmpdir(), `pali-test-dl-${Date.now()}`);
   await mkdir(storage, { recursive: true });
   const target = require("../out/utils/install_pali").getReleaseTarget(
@@ -502,11 +880,17 @@ test("installLatest downloads the release zip and extracts the binary", async ()
   const binName = binaryName();
   const payload = Buffer.from("#!/bin/sh\necho pali 1.0.0\n");
   const zip = zipArchive([{ name: binName, data: payload }]);
+  const assetUrl = "https://api.github.com/repos/cderivan/memory-mcp/releases/assets/711664240";
 
   const requests = [];
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
-    requests.push({ url: String(url), headers: init?.headers ?? {} });
+    const href = String(url);
+    requests.push({ url: href, headers: init?.headers ?? {} });
+    if (href === latestReleaseApiUrl) {
+      return latestReleaseResponse(releaseAssetName(target), assetUrl);
+    }
+    assert.equal(href, assetUrl, "binary bytes are fetched from the API asset URL");
     return new Response(zip, {
       status: 200,
       headers: { "content-length": String(zip.length) },
@@ -516,12 +900,16 @@ test("installLatest downloads the release zip and extracts the binary", async ()
   try {
     await installLatest(ui);
 
-    assert.equal(requests.length, 1, "one download for the binary, none for the model");
+    assert.equal(requests.length, 2, "release lookup and one binary download; no model download");
     assert.equal(
       requests[0].url,
-      `https://github.com/cderivan/memory-mcp/releases/latest/download/${releaseAssetName(target)}`,
+      latestReleaseApiUrl,
+      "the matching release asset is looked up through the GitHub API",
     );
     assert.equal(requests[0].headers.Authorization, "Bearer test-token");
+    assert.equal(requests[1].url, assetUrl);
+    assert.equal(requests[1].headers.Authorization, "Bearer test-token");
+    assert.equal(requests[1].headers.Accept, "application/octet-stream");
 
     const installed = join(storage, binName);
     assert.deepEqual(await readFile(installed), payload);
@@ -536,9 +924,66 @@ test("installLatest downloads the release zip and extracts the binary", async ()
     );
     const maintenance = JSON.parse(await readFile(join(storage, "maintenance.json"), "utf8"));
     assert.equal(maintenance.checkUpdates, true);
-    assert.ok(maintenance.installedVersion, "the version is recorded for update checks");
+    assert.equal(maintenance.installedVersion, "1.0.0", "the binary version is recorded for update checks");
     assert.equal(ui.calls.reloads.length, 1, "the server restart is requested after install");
+    assert.equal(ui.paliPath, installed, "the installed path is set for the UI");
+    assert.equal(ui.calls.prompts.length, 1, "model setup is offered after installing the binary");
     assert.ok(ui.calls.progress.length > 0, "download progress is reported");
+  } finally {
+    globalThis.fetch = originalFetch;
+    await rm(storage, { recursive: true, force: true });
+  }
+});
+
+test("installLatest requests the release asset directly through the API", async () => {
+  // Regression: private repositories require the token-authenticated asset API;
+  // a request to the browser download URL cannot carry the credential.
+  const storage = join(tmpdir(), `pali-test-dl-api-${Date.now()}`);
+  await mkdir(storage, { recursive: true });
+  const target = require("../out/utils/install_pali").getReleaseTarget(
+    process.platform,
+    process.arch,
+  );
+  assert.ok(target, "tests must run on a platform with a prebuilt binary");
+  const name = releaseAssetName(target);
+  const payload = Buffer.from("#!/bin/sh\necho pali 1.0.0\n");
+  const zip = zipArchive([{ name: binaryName(), data: payload }]);
+  const assetUrl = "https://api.github.com/repos/cderivan/memory-mcp/releases/assets/711664240";
+
+  const requests = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const href = String(url);
+    requests.push({ url: href, headers: init?.headers ?? {} });
+    if (href === latestReleaseApiUrl) {
+      return latestReleaseResponse(name, assetUrl);
+    }
+    if (href === assetUrl) {
+      return new Response(zip, {
+        status: 200,
+        headers: { "content-length": String(zip.length) },
+      });
+    }
+    return new Response("unexpected request", { status: 500 });
+  };
+  const ui = makeInstallUi(storage);
+  try {
+    await installLatest(ui);
+
+    assert.deepEqual(
+      requests.map((request) => request.url),
+      [latestReleaseApiUrl, assetUrl],
+      "the release lookup is followed directly by the asset download",
+    );
+    assert.equal(requests[1].headers.Authorization, "Bearer test-token");
+    assert.equal(
+      requests[1].headers.Accept,
+      "application/octet-stream",
+      "the asset endpoint returns JSON without the octet-stream media type",
+    );
+    assert.deepEqual(await readFile(join(storage, binaryName())), payload);
+    assert.equal(ui.calls.errors.length, 0, "the direct API download must not be reported as a failure");
+    assert.equal(ui.calls.reloads.length, 1, "the server restart is requested after install");
   } finally {
     globalThis.fetch = originalFetch;
     await rm(storage, { recursive: true, force: true });
@@ -554,9 +999,14 @@ test("installLatest extracts the bare-triple binary from the macOS zip", async (
   const payload = Buffer.from("universal-binary-bytes");
   const zip = zipArchive([{ name: "aarch64-apple-darwin", data: payload }]);
 
+  const assetUrl = "https://api.github.com/repos/cderivan/memory-mcp/releases/assets/711664240";
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () =>
-    new Response(zip, { status: 200, headers: { "content-length": String(zip.length) } });
+  globalThis.fetch = async (url) => {
+    if (String(url) === latestReleaseApiUrl) {
+      return latestReleaseResponse(releaseAssetName("aarch64-apple-darwin"), assetUrl);
+    }
+    return new Response(zip, { status: 200, headers: { "content-length": String(zip.length) } });
+  };
   const ui = makeInstallUi(storage);
   try {
     await installLatest(ui);
@@ -585,9 +1035,15 @@ test("a 401 during the binary download points at the token command", async () =>
   const storage = join(tmpdir(), `pali-test-dl-401-${Date.now()}`);
   await mkdir(storage, { recursive: true });
 
+  const target = getReleaseTarget(process.platform, process.arch);
+  const assetUrl = "https://api.github.com/repos/cderivan/memory-mcp/releases/assets/711664240";
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () =>
-    new Response("Unauthorized", { status: 401, statusText: "Unauthorized" });
+  globalThis.fetch = async (url) => {
+    if (String(url) === latestReleaseApiUrl) {
+      return latestReleaseResponse(releaseAssetName(target), assetUrl);
+    }
+    return new Response("Unauthorized", { status: 401, statusText: "Unauthorized" });
+  };
   const ui = makeInstallUi(storage);
   try {
     await assert.rejects(
@@ -609,6 +1065,101 @@ test("a 401 during the binary download points at the token command", async () =>
   }
 });
 
+test("a failed download quotes a truncated body snippet in the error", async () => {
+  // Regression: a bare status code hid which page the server served, so an SSO
+  // interstitial and a permission-denied notice looked identical. The snippet
+  // must name the page without buffering or echoing the whole error body.
+  const storage = join(tmpdir(), `pali-test-dl-snippet-${Date.now()}`);
+  await mkdir(storage, { recursive: true });
+  const body =
+    "<html><head><title>Insufficient permission</title></head><body>" +
+    "x".repeat(5000) +
+    "</body></html>";
+
+  const originalFetch = globalThis.fetch;
+  const target = getReleaseTarget(process.platform, process.arch);
+  const assetUrl = "https://api.github.com/repos/cderivan/memory-mcp/releases/assets/711664240";
+  globalThis.fetch = async (url) => {
+    if (String(url) === latestReleaseApiUrl) {
+      return latestReleaseResponse(releaseAssetName(target), assetUrl);
+    }
+    return new Response(body, { status: 403, statusText: "Forbidden" });
+  };
+  const ui = makeInstallUi(storage);
+  try {
+    await assert.rejects(
+      () => installLatest(ui),
+      (error) => {
+        assert.match(error.message, /403[\s\S]*Set HTTPS Token/);
+        assert.match(error.message, /Insufficient permission/, "the page title is reported");
+        assert.doesNotMatch(
+          error.message,
+          /x{300}/,
+          "the body is truncated rather than echoed in full",
+        );
+        return true;
+      },
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    await rm(storage, { recursive: true, force: true });
+  }
+});
+
+test("a download retried after a failure still completes", async () => {
+  // Regression guard: a code path that reads the response body twice leaves
+  // the stream locked, so a retry after a failed attempt must still install.
+  const storage = join(tmpdir(), `pali-test-dl-retry-${Date.now()}`);
+  await mkdir(storage, { recursive: true });
+  assert.ok(
+    getReleaseTarget(process.platform, process.arch),
+    "tests must run on a platform with a prebuilt binary",
+  );
+  const payload = Buffer.from("retried-binary-bytes");
+  const zip = zipArchive([{ name: binaryName(), data: payload }]);
+
+  let downloadAttempts = 0;
+  const originalFetch = globalThis.fetch;
+  const target = getReleaseTarget(process.platform, process.arch);
+  const assetUrl = "https://api.github.com/repos/cderivan/memory-mcp/releases/assets/711664240";
+  globalThis.fetch = async (url) => {
+    if (String(url) === latestReleaseApiUrl) {
+      return latestReleaseResponse(releaseAssetName(target), assetUrl);
+    }
+    downloadAttempts += 1;
+    if (downloadAttempts === 1) {
+      return new Response("<html><body>temporarily unavailable</body></html>", {
+        status: 503,
+        statusText: "Service Unavailable",
+      });
+    }
+    return new Response(zip, {
+      status: 200,
+      headers: { "content-length": String(zip.length) },
+    });
+  };
+  const ui = makeInstallUi(storage);
+  try {
+    await assert.rejects(() => installLatest(ui), /503/);
+    assert.equal(
+      await stat(join(storage, binaryName())).then(
+        () => "exists",
+        () => "gone",
+      ),
+      "gone",
+      "a failed attempt leaves no binary behind",
+    );
+
+    await installLatest(ui);
+
+    assert.equal(downloadAttempts, 2, "the retry downloads again rather than reusing the failed body");
+    assert.deepEqual(await readFile(join(storage, binaryName())), payload);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await rm(storage, { recursive: true, force: true });
+  }
+});
+
 test("a 200 login page is not saved as the binary", async () => {
   // Regression: GitHub Enterprise redirects unauthenticated downloads to the
   // SAML SSO page and answers 200 with HTML. The old code saved that page as
@@ -620,11 +1171,17 @@ test("a 200 login page is not saved as the binary", async () => {
     '<!DOCTYPE html>\n<html lang="en">\n<head><title>Initiating SAML single sign-on</title></head>\n<body></body>\n</html>\n';
 
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () =>
-    new Response(html, {
+  const target = getReleaseTarget(process.platform, process.arch);
+  const assetUrl = "https://api.github.com/repos/cderivan/memory-mcp/releases/assets/711664240";
+  globalThis.fetch = async (url) => {
+    if (String(url) === latestReleaseApiUrl) {
+      return latestReleaseResponse(releaseAssetName(target), assetUrl);
+    }
+    return new Response(html, {
       status: 200,
       headers: { "content-type": "text/html; charset=utf-8" },
     });
+  };
   const ui = makeInstallUi(storage);
   try {
     await assert.rejects(
@@ -653,8 +1210,7 @@ test("a cached binary that is an HTML login page counts as missing", async () =>
   const cached = join(ctx.globalStoragePath, binaryName());
   await mkdir(ctx.globalStoragePath, { recursive: true });
   await writeFile(cached, "<!DOCTYPE html>\n<html><head><title>SSO</title></head></html>", "utf8");
-  // eslint-disable-next-line no-bitwise
-  await import("node:fs").then((fs) => fs.chmodSync(cached, 0o755));
+  chmodSync(cached, 0o755);
   try {
     const result = await require("../out/utils/lib").resolvePaliBinary(ctx, {
       binPath: "pali-nonexistent-xyz",
@@ -685,6 +1241,25 @@ test("a model dir whose files are HTML login pages is not installed", async () =
   }
 });
 
+test("the installer reads the same model manifest as the crate", async () => {
+  // The installer must not carry its own copy of the model layout: the Rust
+  // loader embeds src/model-manifest.json, so a divergence would download files
+  // into a directory the server never resolves.
+  const manifest = JSON.parse(
+    await readFile(join(__dirname, "..", "src", "model-manifest.json"), "utf8"),
+  );
+
+  assert.equal(modelDir("/storage"), join("/storage", "models", manifest.dir));
+  assert.deepEqual(MODEL_FILES, [
+    manifest.files.config,
+    manifest.files.tokenizer,
+    manifest.files.weights,
+  ]);
+  for (const name of MODEL_FILES) {
+    assert.doesNotMatch(name, /[\\/]/, `${name} must be a bare file name`);
+  }
+});
+
 test("installModel downloads and extracts the model zip", async () => {
   const storage = join(tmpdir(), `pali-test-model-dl-${Date.now()}`);
   await mkdir(storage, { recursive: true });
@@ -712,7 +1287,8 @@ test("installModel downloads and extracts the model zip", async () => {
     assert.equal(requests.length, 1);
     assert.equal(
       requests[0].url,
-      "https://github.com/cderivan/memory-mcp/raw/main/models/bge-small-en-v1.5.zip",
+      "https://raw.githubusercontent.com/cderivan/memory-mcp/main/models/bge-small-en-v1.5.zip",
+      "the raw host avoids the redirect that drops the Authorization header",
     );
     assert.equal(requests[0].headers.Authorization, "Bearer test-token");
     assert.equal(
@@ -764,19 +1340,46 @@ test("the MCP provider publishes nothing when no binary resolves", async () => {
   const storage = join(tmpdir(), `pali-test-provider-${Date.now()}`);
   const extensionRoot = join(tmpdir(), `pali-test-ext-provider-${Date.now()}`);
   await mkdir(storage, { recursive: true });
+  await mkdir(join(extensionRoot, "skills", "pali-memory"), { recursive: true });
+  await writeFile(
+    join(extensionRoot, "skills", "pali-memory", "SKILL.md"),
+    "name: pali-memory\n",
+    "utf8",
+  );
+  await mkdir(join(extensionRoot, "instructions"), { recursive: true });
+  await writeFile(
+    join(extensionRoot, "instructions", "pali-memory.instructions.md"),
+    await readFile(join(__dirname, "..", "instructions", "pali-memory.instructions.md"), "utf8"),
+    "utf8",
+  );
 
-  const disposable = () => ({ dispose() {} });
+  // Activation writes the user-level hook config. Point it at the throwaway
+  // extension root: without this, the test overwrites the real
+  // ~/.copilot/hooks/pali.json with a path that is deleted afterwards, and
+  // every later Copilot hook fails with MODULE_NOT_FOUND.
+  const previousHooksDir = process.env.PALI_HOOKS_DIR;
+  process.env.PALI_HOOKS_DIR = join(extensionRoot, "hooks");
+  const previousSkillsDir = process.env.PALI_SKILLS_DIR;
+  process.env.PALI_SKILLS_DIR = join(extensionRoot, "user-skills");
+  const previousInstructions = process.env.PALI_INSTRUCTIONS_PATH;
+  process.env.PALI_INSTRUCTIONS_PATH = join(
+    extensionRoot,
+    "user-instructions",
+    "pali-memory.instructions.md",
+  );
+
+  const disposable = () => ({ dispose() { } });
   let provider;
   const fakeVscode = {
     EventEmitter: class {
       get event() {
         return () => disposable();
       }
-      fire() {}
-      dispose() {}
+      fire() { }
+      dispose() { }
     },
-    commands: { registerCommand: () => disposable(), executeCommand: async () => {} },
-    env: { openExternal() {} },
+    commands: { registerCommand: () => disposable(), executeCommand: async () => { } },
+    env: { openExternal() { } },
     lm: {
       registerMcpServerDefinitionProvider: (_id, definitionProvider) => {
         provider = definitionProvider;
@@ -785,18 +1388,18 @@ test("the MCP provider publishes nothing when no binary resolves", async () => {
     },
     window: {
       ProgressLocation: { Notification: 1 },
-      createOutputChannel: () => ({ appendLine() {}, dispose() {} }),
-      showErrorMessage() {},
+      createOutputChannel: () => ({ appendLine() { }, dispose() { } }),
+      showErrorMessage() { },
       showInformationMessage: async () => undefined,
       showInputBox: async () => undefined,
-      showWarningMessage() {},
+      showWarningMessage() { },
       withProgress: async (_options, task) =>
-        task({ report() {} }, { onCancellationRequested() {} }),
+        task({ report() { } }, { onCancellationRequested() { } }),
     },
     workspace: {
       getConfiguration: () => ({
         get: (key) => (key === "path" ? "/nonexistent/pali-binary" : undefined),
-        update: async () => {},
+        update: async () => { },
       }),
       onDidChangeConfiguration: () => disposable(),
       workspaceFolders: undefined,
@@ -810,18 +1413,83 @@ test("the MCP provider publishes nothing when no binary resolves", async () => {
     return originalLoad.call(this, request, ...rest);
   };
   try {
+    delete require.cache[require.resolve("../out/extension")];
     const extension = require("../out/extension");
     extension.activate({
       extensionPath: extensionRoot,
       globalStorageUri: { fsPath: storage },
-      secrets: { delete: async () => {}, get: async () => undefined, store: async () => {} },
+      secrets: { delete: async () => { }, get: async () => undefined, store: async () => { } },
       subscriptions: [],
     });
 
     assert.ok(provider, "activate must register the MCP server definition provider");
     assert.deepEqual(await provider.provideMcpServerDefinitions(), []);
+    assert.equal(
+      await readFile(join(extensionRoot, "user-skills", "pali-memory", "SKILL.md"), "utf8"),
+      "name: pali-memory\n",
+      "activation must install the skill for the user",
+    );
+    const instructions = await readFile(
+      join(extensionRoot, "user-instructions", "pali-memory.instructions.md"),
+      "utf8",
+    );
+    assert.match(instructions, /^---\n/);
+    assert.match(instructions, /^applyTo: '\*\*'$/m);
+    assert.match(instructions, /`recall`/);
+    assert.match(instructions, /`note`/);
   } finally {
     Module._load = originalLoad;
+    if (previousHooksDir === undefined) delete process.env.PALI_HOOKS_DIR;
+    else process.env.PALI_HOOKS_DIR = previousHooksDir;
+    if (previousSkillsDir === undefined) delete process.env.PALI_SKILLS_DIR;
+    else process.env.PALI_SKILLS_DIR = previousSkillsDir;
+    if (previousInstructions === undefined) delete process.env.PALI_INSTRUCTIONS_PATH;
+    else process.env.PALI_INSTRUCTIONS_PATH = previousInstructions;
+    await rm(extensionRoot, { recursive: true, force: true });
     await rm(storage, { recursive: true, force: true });
+  }
+});
+
+// The hook file outlives the extension directory it points into, so uninstall
+// has to remove it; otherwise every Copilot hook event fails with
+// MODULE_NOT_FOUND until the user deletes it by hand.
+test("uninstall removes the hook config this extension wrote", async () => {
+  const { removeHookConfig } = require("../out/uninstall");
+  const dir = join(tmpdir(), `pali-test-uninstall-${Date.now()}`);
+  const target = join(dir, "pali.json");
+  const exists = () => stat(target).then(() => true, () => false);
+  await mkdir(dir, { recursive: true });
+  try {
+    assert.equal(removeHookConfig(dir), false, "a missing file is not an error");
+
+    // Another tool's file at the same path must survive the uninstall.
+    await writeFile(
+      target,
+      JSON.stringify({ version: 1, hooks: { agentStop: [{ bash: "node /x/other.mjs stop" }] } }),
+      "utf8",
+    );
+    assert.equal(removeHookConfig(dir), false, "a foreign hook file is left alone");
+    assert.equal(await exists(), true);
+
+    await writeFile(
+      target,
+      JSON.stringify({
+        version: 1,
+        hooks: {
+          agentStop: [
+            {
+              type: "command",
+              bash: "PALI_BIN='pali' node '/ext/hooks/copilot-hooks.mjs' stop",
+              powershell: "node '/ext/hooks/copilot-hooks.mjs' stop",
+            },
+          ],
+        },
+      }),
+      "utf8",
+    );
+    assert.equal(removeHookConfig(dir), true);
+    assert.equal(await exists(), false, "the Pali hook config is removed");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
   }
 });

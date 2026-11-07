@@ -3,6 +3,11 @@
 ## Status
 Accepted
 
+Amended by [ADR-0050](0050-minimal-local-core.md): `auth login` and
+`auth status` were removed. The subcommand structure stands; the current
+commands are `serve`, `warmup`, `recall-stats`, `scan`, `index`, and
+`dataset`.
+
 ## Context
 The binary needs to support both server operation and interactive CLI
 commands (auth login, auth status, future migration tools). A flat

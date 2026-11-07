@@ -59,11 +59,13 @@ Visual Studio Code uses `servers` as the root key rather than `mcpServers`.
 
 The [Pali Memory extension](../README.md#install) does this
 setup for you: it registers the server with your configured `pali.remoteUrl`
-and `pali.branch` when VS Code activates it, and writes
-`.github/hooks/pali.json` for the Copilot hooks. The extension also passes
+and `pali.branch` when VS Code activates it, and writes the user-level
+`~/.copilot/hooks/pali.json` for the Copilot hooks. It also copies
+`~/.copilot/instructions/pali-memory.instructions.md`. The extension also passes
 `pali.logLevel` (default `info`) to the server as `RUST_LOG` and to the hooks
-as `PALI_HOOK_LOG_LEVEL`, and writes its own log lines to the **Pali Memory**
-output channel.
+as `PALI_HOOK_LOG_LEVEL`, exports `pali.modelPath` (or the model it
+auto-installed) as `PALI_MODEL_DIR` to the server and the hooks, and writes
+its own log lines to the **Pali Memory** output channel.
 
 ## Windsurf
 

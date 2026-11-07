@@ -36,12 +36,23 @@ JSON-RPC to its stdin, reading replies from its stdout. Memories are stored in
 The process owns a single connection. Logs go to stderr, and closing stdin ends
 the session, so each concurrent client starts its own process.
 
-Pali does not download its embedding model automatically — fetch
-BGE-small-en-v1.5 (about 130 MB) once before the first `pali serve`:
+Pali downloads its embedding model from HuggingFace Hub on first run when the model
+files are not present locally. BGE-small-en-v1.5 (about 130 MB) is downloaded to
+`~/.cache/huggingface/hub/models--BAAI--bge-small-en-v1.5` (or `$HF_HOME` if set):
 
 ```bash
-scripts/fetch-model.sh
-pali warmup  # verifies the files load correctly
+pali serve  # first run downloads the model
+```
+
+The download is a one-time operation; subsequent runs load from the cached files.
+Downloads are performed synchronously at startup (may take ~1 minute) with no
+progress bar (status logged via tracing).
+
+To pre-populate the cache before the first run, or for air-gapped environments:
+
+```bash
+scripts/fetch-model.sh  # manual download to default model directory
+pali warmup             # verifies the files load correctly
 ```
 
 `scripts/fetch-model.sh` writes to the default model directory (or
@@ -64,15 +75,60 @@ To use a different repository location, add the flag to the client's args:
 See [Configuration](configuration.md) for the complete runtime surface and
 [Client setup](clients.md) for client-specific locations and field names.
 
+## Bootstrap a workspace
+
+`pali scan`, `pali index`, and `pali dataset` turn a checkout into local
+retrieval artifacts without touching the memory repository. All three write
+under the workspace's `.pali/` directory (override with `--artifacts`), which
+later scans skip:
+
+```bash
+pali scan                        # .pali/scan.json: inventory and secret findings
+pali index                       # .pali/index: usearch index plus chunks.jsonl
+pali dataset --output out.jsonl  # JSONL chunks for training or evaluation
+```
+
+`scan` reads text files up to 2 MiB, skips dependency and build directories,
+and reports potential private keys, AWS access keys, GitHub tokens, and Slack
+tokens by path and line — never the value. Files that commonly hold
+credentials (`.env*`, `*.pem`, `*.key`, `id_rsa*`, `.npmrc`, and similar) are
+listed, but `index` and `dataset` never chunk their contents. `--limit N`
+bounds a sample; files are sorted first, so the prefix is deterministic.
+`index` needs the embedding model provisioned with `scripts/fetch-model.sh`.
+
+`pali scan` is git-aware: when the workspace root is a git repository it scans
+that repository (nested repositories are not followed), lists its tracked and
+untracked-but-not-ignored files, and writes
+`.pali/security-scan.json`, `.pali/scan-manifest.jsonl`, and
+`.pali/insights.json`: repository, path, language, HEAD commit, content hash,
+recent commit subjects, and — with `--blame` — per-line commit IDs. The
+insights are deterministic counts and paths (language mix, top-level areas,
+largest files, TODO/FIXME markers, test-file ratio, project files, never model
+output or file content). A file whose path or contents look sensitive is
+excluded whole rather than redacted, and findings name the rule, path, and line,
+never the matched value.
+
+A plain directory gets the file and secret report from the workspace scanner
+instead; `--save-memories` is refused there because there is no digest to
+commit.
+
+`--save-memories` also stores the insight digest as one `codebase-insights`
+memory in the pali memory repository (default `~/.memory-mcp`), so later agent
+sessions can recall how the project is laid out. `--scope` defaults to the
+workspace directory name.
+
 ## Install the VS Code extension
 
 In VS Code, the [Pali Memory extension](../README.md#install)
 registers the server for you: enabling the extension adds a `pali` MCP server
-built from the `pali.binPath`, `pali.repoPath`, `pali.remoteUrl`, and
-`pali.branch` settings, then starts it on demand. It also writes
-`.github/hooks/pali.json`, so Copilot recalls project memories at session
-start and captures a digest when the agent stops. VS Code may ask once to trust
-the server.
+built from the `pali.binPath`, `pali.repoPath`, `pali.remoteUrl`,
+`pali.branch`, and `pali.modelPath` settings, then starts it on demand. It
+also writes the user-level
+`~/.copilot/hooks/pali.json` once per machine, so Copilot recalls project
+memories at session start and captures a digest when the agent stops. It also
+copies `pali-memory.instructions.md` into `~/.copilot/instructions/`, so
+Copilot recalls at task start and stores durable facts with `note`. VS Code may
+ask once to trust the server.
 
 ## Store and retrieve a memory
 
@@ -113,6 +169,13 @@ pali serve
 
 `ssh://` and scp-like `git@host:path` remotes work too and need no token:
 Pali uses a default key in `~/.ssh` or the running ssh-agent.
+
+**Windows note:** SSH remotes require ed25519 key support. Modern `ssh-keygen`
+defaults to ed25519, which requires the OpenSSL crypto backend on Windows
+(WinCNG lacks ed25519 support). The Windows binary is built with
+`libssh2-sys/openssl-on-win32` feature enabled, which configures libssh2 to use
+OpenSSL instead of WinCNG for SSH. See [ADR-0046](adr/0046-ssh-git-remotes.md)
+for details.
 
 For a private HTTPS remote, configure git credentials the usual way — a
 credential helper or a `~/.netrc` entry — or set `PALI_GIT_TOKEN` to a personal

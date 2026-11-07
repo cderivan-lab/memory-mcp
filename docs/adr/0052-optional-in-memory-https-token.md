@@ -1,6 +1,7 @@
 # ADR-0052: Optional in-memory HTTPS git token
 
 ## Status
+
 Accepted
 
 ## Context
@@ -45,8 +46,9 @@ Without the variable, behaviour is unchanged: libgit2's credential helpers and
 
 The token is never written to the repository config, logs, spans, or MCP
 traffic, and it is not exported to child processes beyond the process that
-received it. The VS Code extension exposes the variable as the `pali.pat`
-setting and passes it to the server as `PALI_GIT_TOKEN`.
+received it. The VS Code extension stores the token in VS Code secret storage
+(the OS keychain) via its **Pali: Set HTTPS Token** command and passes it to
+the server as `PALI_GIT_TOKEN`; it is not a plaintext setting.
 
 `PALI_REMOTE_URL` may also be an absolute path to a local or bare repository;
 git resolves path remotes directly and no credential is involved.

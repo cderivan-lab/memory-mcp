@@ -15,13 +15,11 @@ is inside the trust boundary.
 
 ## Credentials and local files
 
-GitHub tokens are resolved from `PALI_GITHUB_TOKEN`, an owner-readable
-token file, or the system keyring. A deployment can inject a token through
-the environment variable. The CLI does not accept tokens
-as arguments, and credentials are not written to the memory repository. On
-Unix, the file store creates its directory with mode `0o700` and token file
-with mode `0o600`; Pali also sets process umask `0o077` before creating
-files so group and other permissions are masked off by default.
+Pali does not store credentials. HTTPS remotes use git's configured credential
+helpers or a `~/.netrc` entry unless `PALI_GIT_TOKEN` is set. The CLI does not
+accept tokens as arguments, and credentials are not written to the memory
+repository. A token comes from the operator's environment or, in VS Code, from
+secret storage; there is no token file or keyring store.
 
 Operators who cannot configure a credential helper may set `PALI_GIT_TOKEN`.
 Pali reads it once per authentication attempt, passes it to libgit2 in memory,

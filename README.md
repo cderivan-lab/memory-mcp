@@ -6,12 +6,37 @@ crate is built from `pali/`
 - registers the `pali` MCP server through VS Code's MCP server definition
   provider, so enabling the extension is enough — no command, install link, or
   manual configuration
-- writes `.github/hooks/pali.json` so the Copilot hooks recall project memories
-  at session start, inject relevant memories per prompt, and capture a session
-  digest when the agent stops
+- writes the user-level `~/.copilot/hooks/pali.json` once per machine, so the
+  Copilot hooks recall project memories at session start, inject relevant
+  memories per prompt, and capture a session digest when the agent stops
+- copies a Pali Memory instruction file to
+  `~/.copilot/instructions/pali-memory.instructions.md` (frontmatter
+  `applyTo: '**'`), so Copilot recalls context at task start and stores durable
+  facts with `note`
 
 The hooks themselves live in `hooks/` and are unchanged from the standalone
 Copilot hook scripts.
+
+## Quick reference
+
+Pali keeps memories as Markdown in a git-backed repository (`~/.memory-mcp` by
+default) and serves them over MCP:
+
+| Need | Tool |
+| --- | --- |
+| Save a finding, decision, or document | `note` (`remember` is the same operation) |
+| Search by meaning or keyword | `recall` |
+| Read a full memory | `read` |
+| Browse or filter by tag | `list` |
+| Change, relocate, or delete | `edit`, `move`, `forget` |
+| Share over git | `sync` |
+
+Pass the project scope (the git repository name) when saving or searching
+project memories — the tools default to global. The extension installs the
+agent-facing guide at `~/.copilot/skills/pali-memory/SKILL.md` and refreshes it
+at activation; the same guide is in
+[`skills/pali-memory/SKILL.md`](skills/pali-memory/SKILL.md). It also copies the
+always-on rule to `~/.copilot/instructions/pali-memory.instructions.md`.
 
 ## Settings
 
@@ -20,12 +45,15 @@ Copilot hook scripts.
 | `pali.path`      | `pali`  | Executable name or absolute path                                          |
 | `pali.repoPath`  | empty   | Memory repository; empty uses `~/.memory-mcp`                             |
 | `pali.remoteUrl` | empty   | Git remote (HTTPS/SSH URL or absolute local path); empty stays local-only |
+| `pali.remoteSync`| `false` | Pull every repository from the remote before startup; requires a non-empty `pali.remoteUrl` |
 | `pali.branch`    | `main`  | Branch used for push and pull                                             |
 | `pali.scope`     | empty   | Hook memory scope; empty derives it from the git repo name                |
+| `pali.modelPath` | empty   | Embedding model directory; empty uses the model the extension installed  |
 | `pali.logLevel`  | `info`  | Log level for the extension, the MCP server, and the hooks                |
 
-`remoteUrl` and `branch` are passed to the MCP server as `PALI_REMOTE_URL` and
-`PALI_BRANCH`. `logLevel` (`debug`, `info`, `warn`, `error`, `off`) is passed
+`remoteUrl`, `remoteSync`, and `branch` are passed to the MCP server as
+`PALI_REMOTE_URL`, `PALI_REQUIRE_REMOTE_SYNC`, and `PALI_BRANCH`. `logLevel`
+(`debug`, `info`, `warn`, `error`, `off`) is passed
 to the server as `RUST_LOG` and to the hooks as `PALI_HOOK_LOG_LEVEL`, so one
 setting controls the whole project's verbosity. Extension and install log
 lines land in the **Pali Memory** output channel.
@@ -82,6 +110,33 @@ with no authentication at all.
 
 Hooks intentionally run local-only, so a slow remote cannot stall a session;
 the long-running MCP server syncs on its next push/pull.
+
+Uninstalling the extension runs its `vscode:uninstall` script, which removes
+`~/.copilot/hooks/pali.json` (or the file under `PALI_HOOKS_DIR`). The hooks
+point into the extension directory, so leaving the file behind would make
+every hook event fail until it was deleted by hand. A file at that path that
+the extension did not write is left untouched. Generated hook commands also
+check for the script before running it and exit successfully when it is gone,
+so a stale hook file cannot surface `MODULE_NOT_FOUND` stack traces. The same
+script removes `~/.copilot/instructions/pali-memory.instructions.md` (or
+`PALI_INSTRUCTIONS_PATH`) only when it still matches the shipped copy; a
+hand-edited file is left alone.
+
+## Scan and index a workspace
+
+Two commands bootstrap the open folder into local retrieval artifacts under
+`<workspace>/.pali/`, without touching the memory repository:
+
+- **Pali: Scan Workspace** writes `.pali/scan.json`: the text-file inventory
+  plus potential-secret findings by path and line (the matched values are
+  never stored).
+- **Pali: Index Workspace** embeds the scanned chunks into `.pali/index` (a
+  usearch index plus `chunks.jsonl`), using the same embedding model the
+  server loads. Long runs report progress and can be cancelled.
+
+Both stream the CLI's tracing output to the **Pali Memory** channel and finish
+with a one-line summary. The folder comes from the first workspace folder, so
+open the checkout you want to bootstrap first.
 
 ## Build and install
 

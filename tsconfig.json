@@ -42,5 +42,8 @@
   ],
   "include": [
     "src"
+  ],
+  "files": [
+    "src/model-manifest.json"
   ]
 }

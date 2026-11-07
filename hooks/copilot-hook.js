@@ -3,7 +3,7 @@
  * Copilot CLI / VS Code `userPromptTransformed` hook — pali (memory-mcp)
  * edition.
  *
- * Replaces the Hindsight version. Copilot's hook replaces model-facing prompt
+ * Copilot's hook replaces model-facing prompt
  * content rather than appending to it, so the recalled memories are appended to
  * `transformedPrompt` and the result is returned as `modifiedTransformedPrompt`.
  * Memories already injected into this session (by SessionStart or an earlier

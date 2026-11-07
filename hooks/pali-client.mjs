@@ -1,15 +1,24 @@
 /**
  * Shared plumbing for the Copilot hooks that talk to the pali memory-mcp server.
  *
- * pali speaks MCP over stdio, so every hook starts a short-lived `pali serve
- * --transport stdio` process, performs the handshake, issues exactly one
- * `tools/call`, and exits. Hooks are best effort: nothing in here may throw
+ * pali speaks MCP over stdio, so every hook starts a short-lived `pali serve`
+ * process, performs the handshake, issues exactly one `tools/call`, and exits.
+ * Stdio is the only transport pali speaks (the `--transport` flag was removed
+ * in pali 1.0.1 — see ADR-0050). Hooks are best effort: nothing in here may throw
  * into the host agent, so `runHook` swallows and logs every failure.
  */
 
 import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { appendFileSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
@@ -67,12 +76,16 @@ export function log(level, message, extra) {
     mkdirSync(STATE_DIR, { recursive: true, mode: 0o700 });
     try {
       if (statSync(file).size >= LOG_MAX_BYTES) renameSync(file, `${file}.1`);
-    } catch {}
+    } catch { }
     const detail = extra && Object.keys(extra).length ? ` ${JSON.stringify(extra)}` : "";
-    appendFileSync(file, `${new Date().toISOString()} ${level.toUpperCase().padEnd(5)} ${message}${detail}\n`, {
-      mode: 0o600,
-    });
-  } catch {}
+    appendFileSync(
+      file,
+      `${new Date().toISOString()} ${level.toUpperCase().padEnd(5)} ${message}${detail}\n`,
+      {
+        mode: 0o600,
+      },
+    );
+  } catch { }
 }
 
 function describeError(error) {
@@ -137,7 +150,7 @@ export function sanitizeScope(value) {
   return components.length ? components.join("/") : "unknown-project";
 }
 
-/** The git project name (matching the old Hindsight `{gitProject}` bank), else the cwd name. */
+/** The git project name, else the cwd name. */
 export function projectScope(cwd, config = hookConfig()) {
   if (config.scope) return sanitizeScope(config.scope);
   let name = "";
@@ -149,7 +162,7 @@ export function projectScope(cwd, config = hookConfig()) {
       stdio: ["ignore", "pipe", "ignore"],
     }).trim();
     if (top) name = basename(top);
-  } catch {}
+  } catch { }
   if (!name) name = basename(cwd || process.cwd());
   return sanitizeScope(name);
 }
@@ -182,18 +195,26 @@ function unwrapResult(tool, message) {
  * `--remote-url`, so a slow or offline git remote can never stall a hook. The
  * long-running MCP server (which does own the remote) picks the commit up on
  * its next pull/push.
+ *
+ * Stdio is the only transport pali speaks, so `serve` is invoked with no
+ * transport flag. (pali 1.0.1 removed the `--transport` argument along with the
+ * Streamable HTTP client — see ADR-0050.)
  */
 export function callTool(name, args, options = {}) {
   const config = options.config || hookConfig();
   const timeoutMs = options.timeoutMs || DEFAULT_TIMEOUT_MS;
 
   return new Promise((resolve, reject) => {
-    const argv = ["serve", "--transport", "stdio"];
+    const argv = ["serve"];
     if (config.repoPath) argv.push("--repo-path", config.repoPath);
 
     let child;
     try {
-      child = spawn(config.bin, argv, { stdio: ["pipe", "pipe", "pipe"], env: process.env, windowsHide: true });
+      child = spawn(config.bin, argv, {
+        stdio: ["pipe", "pipe", "pipe"],
+        env: process.env,
+        windowsHide: true,
+      });
     } catch (error) {
       reject(new Error(`cannot start ${config.bin}: ${describeError(error)}`));
       return;
@@ -212,30 +233,38 @@ export function callTool(name, args, options = {}) {
         child.stdin.destroy();
         child.stdout.destroy();
         child.stderr.destroy();
-      } catch {}
+      } catch { }
       try {
         child.kill("SIGTERM");
-      } catch {}
+      } catch { }
       const reap = setTimeout(() => {
         try {
           child.kill("SIGKILL");
-        } catch {}
+        } catch { }
       }, 2000);
       if (typeof reap.unref === "function") reap.unref();
       settle(value);
     };
 
-    timer = setTimeout(() => finish(reject, new Error(`pali ${name} timed out after ${timeoutMs}ms`)), timeoutMs);
+    timer = setTimeout(
+      () => finish(reject, new Error(`pali ${name} timed out after ${timeoutMs}ms`)),
+      timeoutMs,
+    );
 
-    child.on("error", (error) => finish(reject, new Error(`cannot start ${config.bin}: ${describeError(error)}`)));
+    child.on("error", (error) =>
+      finish(reject, new Error(`cannot start ${config.bin}: ${describeError(error)}`)),
+    );
     child.on("exit", (code) =>
-      finish(reject, new Error(`pali exited (code ${code}) before replying: ${stderrTail.trim().slice(-300)}`)),
+      finish(
+        reject,
+        new Error(`pali exited (code ${code}) before replying: ${stderrTail.trim().slice(-300)}`),
+      ),
     );
     child.stderr.setEncoding("utf8");
     child.stderr.on("data", (chunk) => {
       stderrTail = (stderrTail + chunk).slice(-4000);
     });
-    child.stdin.on("error", () => {});
+    child.stdin.on("error", () => { });
     child.stdout.setEncoding("utf8");
     child.stdout.on("data", (chunk) => {
       buffer += chunk;
@@ -326,7 +355,8 @@ function sessionStateFile(sessionId) {
 export function loadInjected(sessionId) {
   try {
     const parsed = JSON.parse(readFileSync(sessionStateFile(sessionId), "utf8"));
-    const injected = parsed && typeof parsed.injected === "object" && parsed.injected ? parsed.injected : {};
+    const injected =
+      parsed && typeof parsed.injected === "object" && parsed.injected ? parsed.injected : {};
     const cutoff = Date.now() - SESSION_STATE_TTL_MS;
     const fresh = {};
     for (const [name, at] of Object.entries(injected)) {
@@ -342,12 +372,15 @@ export function recordInjected(sessionId, names) {
   if (!Array.isArray(names) || !names.length) return;
   const injected = loadInjected(sessionId);
   const now = Date.now();
-  for (const name of names) if (typeof name === "string" && name) injected[name] = injected[name] ?? now;
+  for (const name of names)
+    if (typeof name === "string" && name) injected[name] = injected[name] ?? now;
   const trimmed = Object.fromEntries(Object.entries(injected).slice(-200));
   try {
     mkdirSync(join(STATE_DIR, "sessions"), { recursive: true, mode: 0o700 });
-    writeFileSync(sessionStateFile(sessionId), JSON.stringify({ injected: trimmed }), { mode: 0o600 });
-  } catch {}
+    writeFileSync(sessionStateFile(sessionId), JSON.stringify({ injected: trimmed }), {
+      mode: 0o600,
+    });
+  } catch { }
 }
 
 // ---------------------------------------------------------------------------
@@ -376,11 +409,14 @@ export function formatMemoryBlock({ scope, memories, intro, budget = 6000 }) {
   for (const memory of memories) {
     const content = String(memory.content ?? "").trim();
     const tags = Array.isArray(memory.tags)
-      ? memory.tags.filter((tag) => typeof tag === "string" && !tag.startsWith("source-sha:")).slice(0, 6)
+      ? memory.tags
+        .filter((tag) => typeof tag === "string" && !tag.startsWith("source-sha:"))
+        .slice(0, 6)
       : [];
     const lines = [`### ${memory.name}`];
     if (content) lines.push(content);
-    if (memory.truncated) lines.push(`_(snippet truncated at ${memory.content_length ?? "?"} chars)_`);
+    if (memory.truncated)
+      lines.push(`_(snippet truncated at ${memory.content_length ?? "?"} chars)_`);
     if (tags.length) lines.push(`tags: ${tags.join(", ")}`);
     const rendered = lines.join("\n");
     if (kept.length && used + rendered.length > budget) {

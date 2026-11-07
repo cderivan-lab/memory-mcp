@@ -33,11 +33,16 @@ jobs:
         include:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
           - target: aarch64-apple-darwin
             os: macos-latest
           # Windows builds are best-effort: usearch still needs a working
-          # vector index there (#42, #56).
+          # vector index there (#42, #56). x64 is built natively on the
+          # windows-latest runner; arm64 is cross-compiled from that runner.
           - target: x86_64-pc-windows-msvc
+            os: windows-latest
+          - target: aarch64-pc-windows-msvc
             os: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

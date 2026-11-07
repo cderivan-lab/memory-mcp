@@ -8,6 +8,7 @@ use tracing::{info, warn};
 
 use crate::{
     error::MemoryError,
+    git_read::ChangeKind,
     health::SubsystemReporter,
     types::{
         ChangedMemories, Memory, MemoryMetadata, MemoryName, PullResult, ResolvedChanges, Scope,
@@ -78,7 +79,9 @@ fn fast_forward(
                 &format!("pull: create branch {} from fetch", branch),
             )?;
         }
-        Err(e) => return Err(MemoryError::Git(e)),
+        Err(e) => {
+            return Err(MemoryError::Git(e));
+        }
     }
 
     repo.set_head(&refname)?;
@@ -330,7 +333,9 @@ impl MemoryRepo {
                     repo.remote("origin", url)?;
                     info!("created origin remote pointing at {}", redact_url(url));
                 }
-                Err(e) => return Err(MemoryError::Git(e)),
+                Err(e) => {
+                    return Err(MemoryError::Git(e));
+                }
             }
         }
 
@@ -350,20 +355,13 @@ impl MemoryRepo {
     /// Return the current HEAD commit SHA as a hex string, or `None` if the
     /// branch is unborn (no commits yet).
     pub async fn head_sha(self: &Arc<Self>) -> Option<String> {
-        let me = Arc::clone(self);
-        traced_spawn_blocking(move || {
-            let repo = me.inner.lock().expect("repo mutex poisoned");
-            let oid_bytes = capture_head_oid(&repo).ok()?;
-            if oid_bytes == [0u8; 20] {
-                return None;
-            }
-            git2::Oid::from_bytes(&oid_bytes)
-                .ok()
-                .map(|oid| oid.to_string())
-        })
-        .await
-        .ok()
-        .flatten()
+        let root = self.root.clone();
+        // A read: it does not need the libgit2 handle, so it neither blocks on
+        // nor contends with the writer's mutex.
+        traced_spawn_blocking(move || crate::git_read::head_sha(&root))
+            .await
+            .ok()
+            .flatten()
     }
 
     /// Absolute path for a memory's markdown file inside the repo.
@@ -379,7 +377,6 @@ impl MemoryRepo {
     /// `tokio::task::spawn_blocking` so the async executor is not stalled.
     pub async fn save_memory(self: &Arc<Self>, memory: &Memory) -> Result<(), MemoryError> {
         let file_path = self.memory_path(&memory.name, &memory.metadata.scope);
-        self.assert_within_root(&file_path)?;
 
         let arc = Arc::clone(self);
         let memory = memory.clone();
@@ -394,8 +391,12 @@ impl MemoryRepo {
                 .lock()
                 .expect("lock poisoned — prior panic corrupted state");
 
+            // Validate path is within repo root.
+            arc.assert_within_root(&file_path)?;
+
             // Ensure the parent directory exists.
             if let Some(parent) = file_path.parent() {
+                #[allow(clippy::disallowed_methods)]
                 std::fs::create_dir_all(parent)?;
             }
 
@@ -432,7 +433,6 @@ impl MemoryRepo {
         scope: &Scope,
     ) -> Result<(), MemoryError> {
         let file_path = self.memory_path(name, scope);
-        self.assert_within_root(&file_path)?;
 
         let arc = Arc::clone(self);
         let name = name.to_string();
@@ -445,8 +445,11 @@ impl MemoryRepo {
                 .lock()
                 .expect("lock poisoned — prior panic corrupted state");
 
+            arc.assert_within_root(&file_path_clone)?;
+
             Self::assert_exists_no_symlink(&file_path_clone, &name)?;
 
+            #[allow(clippy::disallowed_methods)]
             std::fs::remove_file(&file_path_clone)?;
 
             let mut index = arc.index_from_head(&repo)?;
@@ -490,10 +493,7 @@ impl MemoryRepo {
         dest_scope: &Scope,
     ) -> Result<Memory, MemoryError> {
         let source_path = self.memory_path(source_name, source_scope);
-        self.assert_within_root(&source_path)?;
-
         let dest_path = self.memory_path(dest_name, dest_scope);
-        self.assert_within_root(&dest_path)?;
 
         let arc = Arc::clone(self);
         let source_name = source_name.to_string();
@@ -512,6 +512,9 @@ impl MemoryRepo {
                 .inner
                 .lock()
                 .expect("lock poisoned — prior panic corrupted state");
+
+            arc.assert_within_root(&source_path)?;
+            arc.assert_within_root(&dest_path)?;
 
             Self::assert_exists_no_symlink(&source_path, &source_name)?;
 
@@ -532,10 +535,12 @@ impl MemoryRepo {
             // reset hard to HEAD so we never leave dirty/untracked files.
             let commit_result = (|| -> Result<git2::Oid, MemoryError> {
                 if let Some(parent) = dest_path.parent() {
+                    #[allow(clippy::disallowed_methods)]
                     std::fs::create_dir_all(parent)?;
                 }
                 let markdown = dest.to_markdown()?;
                 arc.write_memory_file(&dest_path, markdown.as_bytes())?;
+                #[allow(clippy::disallowed_methods)]
                 std::fs::remove_file(&source_path)?;
 
                 let mut index = arc.index_from_head(&repo)?;
@@ -586,13 +591,13 @@ impl MemoryRepo {
         scope: &Scope,
     ) -> Result<Memory, MemoryError> {
         let file_path = self.memory_path(name, scope);
-        self.assert_within_root(&file_path)?;
 
         let arc = Arc::clone(self);
         let name = name.to_string();
         let span = tracing::debug_span!("repo.read", name = %name);
         let result = traced_spawn_blocking(move || -> Result<Memory, MemoryError> {
             let _enter = span.entered();
+            arc.assert_within_root(&file_path)?;
             Self::assert_exists_no_symlink(&file_path, &name)?;
             let raw = arc.read_memory_file(&file_path)?;
             Memory::from_markdown(&raw)
@@ -618,74 +623,75 @@ impl MemoryRepo {
     ) -> Result<Vec<Memory>, MemoryError> {
         let root = self.root.clone();
         let scope_clone = scope.cloned();
-        let span = tracing::debug_span!("repo.list", file_count = tracing::field::Empty,);
+        let span = tracing::debug_span!("repo.list", file_count = tracing::field::Empty);
 
-        let result = traced_spawn_blocking(move || -> Result<Vec<Memory>, MemoryError> {
-            let _enter = span.entered();
-            let dirs: Vec<PathBuf> = match scope_clone.as_ref() {
-                Some(s) => vec![root.join(s.dir_prefix().as_ref())],
-                None => {
-                    // Walk both global/ and projects/* (on-disk namespace directories)
-                    let mut dirs = Vec::new();
-                    let global = root.join("global");
-                    if global.exists() {
-                        dirs.push(global);
+        let result = traced_spawn_blocking(
+            move || -> Result<Vec<Memory>, MemoryError> {
+                let _enter = span.entered();
+                let dirs: Vec<PathBuf> = match scope_clone.as_ref() {
+                    Some(s) => vec![root.join(s.dir_prefix().as_ref())],
+                    None => {
+                        // Walk both global/ and projects/* (on-disk namespace directories)
+                        let mut dirs = Vec::new();
+                        let global = root.join("global");
+                        if global.exists() {
+                            dirs.push(global);
+                        }
+                        let projects = root.join("projects");
+                        if projects.exists() {
+                            for entry in std::fs::read_dir(&projects)? {
+                                let entry = entry?;
+                                if entry.file_type()?.is_dir() {
+                                    dirs.push(entry.path());
+                                }
+                            }
+                        }
+                        dirs
                     }
-                    let projects = root.join("projects");
-                    if projects.exists() {
-                        for entry in std::fs::read_dir(&projects)? {
-                            let entry = entry?;
-                            if entry.file_type()?.is_dir() {
-                                dirs.push(entry.path());
+                };
+
+                fn collect_md_files(dir: &Path, out: &mut Vec<Memory>) -> Result<(), MemoryError> {
+                    if !dir.exists() {
+                        return Ok(());
+                    }
+                    for entry in std::fs::read_dir(dir)? {
+                        let entry = entry?;
+                        let path = entry.path();
+                        let ft = entry.file_type()?;
+                        // Skip symlinks entirely to prevent directory traversal.
+                        if ft.is_symlink() {
+                            warn!(
+                                "skipping symlink at {:?} — symlinks are not permitted in the memory store",
+                                path
+                            );
+                            continue;
+                        }
+                        if ft.is_dir() {
+                            collect_md_files(&path, out)?;
+                        } else if path.extension().and_then(|e| e.to_str()) == Some("md") {
+                            #[allow(clippy::disallowed_methods)]
+                            let raw = std::fs::read_to_string(&path)?;
+                            match Memory::from_markdown(&raw) {
+                                Ok(m) => out.push(m),
+                                Err(e) => {
+                                    warn!("skipping {:?}: {}", path, e);
+                                }
                             }
                         }
                     }
-                    dirs
+                    Ok(())
                 }
-            };
 
-            fn collect_md_files(dir: &Path, out: &mut Vec<Memory>) -> Result<(), MemoryError> {
-                if !dir.exists() {
-                    return Ok(());
+                let mut memories = Vec::new();
+                for dir in dirs {
+                    collect_md_files(&dir, &mut memories)?;
                 }
-                for entry in std::fs::read_dir(dir)? {
-                    let entry = entry?;
-                    let path = entry.path();
-                    let ft = entry.file_type()?;
-                    // Skip symlinks entirely to prevent directory traversal.
-                    if ft.is_symlink() {
-                        warn!(
-                            "skipping symlink at {:?} — symlinks are not permitted in the memory store",
-                            path
-                        );
-                        continue;
-                    }
-                    if ft.is_dir() {
-                        collect_md_files(&path, out)?;
-                    } else if path.extension().and_then(|e| e.to_str()) == Some("md") {
-                        let raw = std::fs::read_to_string(&path)?;
-                        match Memory::from_markdown(&raw) {
-                            Ok(m) => out.push(m),
-                            Err(e) => {
-                                warn!("skipping {:?}: {}", path, e);
-                            }
-                        }
-                    }
-                }
-                Ok(())
+
+                tracing::Span::current().record("file_count", memories.len());
+
+                Ok(memories)
             }
-
-            let mut memories = Vec::new();
-            for dir in dirs {
-                collect_md_files(&dir, &mut memories)?;
-            }
-
-            tracing::Span::current().record("file_count", memories.len());
-
-            Ok(memories)
-        })
-        .await
-        .map_err(|e| MemoryError::Join(e.to_string()))?;
+        ).await.map_err(|e| MemoryError::Join(e.to_string()))?;
 
         match &result {
             Ok(_) => self.reporter.report_ok(),
@@ -717,7 +723,9 @@ impl MemoryRepo {
                     warn!("push: no origin remote configured — skipping (local-only mode)");
                     return Ok(());
                 }
-                Err(e) => return Err(MemoryError::Git(e)),
+                Err(e) => {
+                    return Err(MemoryError::Git(e));
+                }
             };
 
             let mut callbacks = build_auth_callbacks();
@@ -858,7 +866,9 @@ impl MemoryRepo {
                     warn!("pull: no origin remote configured — skipping (local-only mode)");
                     return Ok(PullResult::NoRemote);
                 }
-                Err(e) => return Err(MemoryError::Git(e)),
+                Err(e) => {
+                    return Err(MemoryError::Git(e));
+                }
             };
 
             // ---- 2. Fetch -------------------------------------------------------
@@ -882,7 +892,9 @@ impl MemoryRepo {
                     info!("pull: FETCH_HEAD is empty or corrupted — treating as empty remote");
                     return Ok(PullResult::UpToDate);
                 }
-                Err(e) => return Err(MemoryError::Git(e)),
+                Err(e) => {
+                    return Err(MemoryError::Git(e));
+                }
             };
             let fetch_commit = match repo.reference_to_annotated_commit(&fetch_head) {
                 Ok(c) => c,
@@ -891,7 +903,9 @@ impl MemoryRepo {
                     info!("pull: FETCH_HEAD not resolvable — treating as empty remote");
                     return Ok(PullResult::UpToDate);
                 }
-                Err(e) => return Err(MemoryError::Git(e)),
+                Err(e) => {
+                    return Err(MemoryError::Git(e));
+                }
             };
 
             // ---- 4. Merge analysis ----------------------------------------------
@@ -920,9 +934,10 @@ impl MemoryRepo {
 
     /// Diff two commits and return the memory files that changed.
     ///
-    /// Only `.md` files under `global/` or `projects/` (namespace directories) are considered.
-    /// Added/modified files go into `upserted`; deleted files go into `removed`.
-    /// Qualified names are returned without the `.md` suffix (e.g. `"global/foo"`).
+    /// Only `.md` files under `global/` or `projects/` (namespace directories)
+    /// are considered. Added, modified and type-changed files go into
+    /// `upserted`; deleted and type-changed files go into `removed`. Qualified
+    /// names are returned without the `.md` suffix (e.g. `"global/foo"`).
     ///
     /// This is the published, stable change-set surface: it derives its strings
     /// straight from the git delta paths and reports **every** changed `.md`
@@ -935,268 +950,125 @@ impl MemoryRepo {
     /// preserve the exact 0.16.0 value contract; the mirror path uses
     /// `diff_changed_refs`.
     ///
-    /// Must be called from within `spawn_blocking` since it uses git2.
+    /// Must be called from within `spawn_blocking` since it reads git objects.
     pub fn diff_changed_memories(
         &self,
         old_oid: [u8; 20],
         new_oid: [u8; 20],
     ) -> Result<ChangedMemories, MemoryError> {
-        let repo = self
-            .inner
-            .lock()
-            .expect("lock poisoned — prior panic corrupted state");
-
-        let new_git_oid = git2::Oid::from_bytes(&new_oid).map_err(MemoryError::Git)?;
-        let new_tree = repo.find_commit(new_git_oid)?.tree()?;
-
-        // A zero OID indicates an unborn branch (no prior commits). In that case,
-        // diff against an empty tree so all files appear as additions.
-        let diff = if old_oid == [0u8; 20] {
-            repo.diff_tree_to_tree(None, Some(&new_tree), None)?
-        } else {
-            let old_git_oid = git2::Oid::from_bytes(&old_oid).map_err(MemoryError::Git)?;
-            let old_tree = repo.find_commit(old_git_oid)?.tree()?;
-            repo.diff_tree_to_tree(Some(&old_tree), Some(&new_tree), None)?
-        };
-
         let mut changes = ChangedMemories::default();
-
-        diff.foreach(
-            &mut |delta, _progress| {
-                use git2::Delta;
-
-                let path = match delta.new_file().path().or_else(|| delta.old_file().path()) {
-                    Some(p) => p,
-                    None => return true,
-                };
-
-                let path_str = match path.to_str() {
-                    Some(s) => s,
-                    None => return true,
-                };
-
-                // Only care about .md files under global/ or projects/ (namespace directories)
-                if !path_str.ends_with(".md") {
-                    return true;
+        for change in crate::git_read::changed_files(&self.root, old_oid, new_oid)? {
+            let Some(qualified) = change.path.strip_suffix(".md").map(str::to_string) else {
+                continue;
+            };
+            match change.kind {
+                ChangeKind::Added | ChangeKind::Modified => changes.upserted.push(qualified),
+                ChangeKind::Removed => changes.removed.push(qualified),
+                ChangeKind::TypeChanged => {
+                    changes.removed.push(qualified.clone());
+                    changes.upserted.push(qualified);
                 }
-                if !path_str.starts_with("global/") && !path_str.starts_with("projects/") {
-                    return true;
-                }
-
-                // Strip the .md suffix to get the qualified name.
-                let qualified = &path_str[..path_str.len() - 3];
-
-                match delta.status() {
-                    Delta::Added | Delta::Modified => {
-                        changes.upserted.push(qualified.to_string());
-                    }
-                    Delta::Renamed | Delta::Copied => {
-                        // For renames, the old path must be removed from the index
-                        // to avoid leaving a ghost vector behind.
-                        if matches!(delta.status(), Delta::Renamed)
-                            && let Some(old_path) = delta.old_file().path().and_then(|p| p.to_str())
-                            && old_path.ends_with(".md")
-                            && (old_path.starts_with("global/")
-                                || old_path.starts_with("projects/"))
-                        {
-                            changes
-                                .removed
-                                .push(old_path[..old_path.len() - 3].to_string());
-                        }
-                        changes.upserted.push(qualified.to_string());
-                    }
-                    Delta::Deleted => {
-                        changes.removed.push(qualified.to_string());
-                    }
-                    _ => {}
-                }
-
-                true
-            },
-            None,
-            None,
-            None,
-        )
-        .map_err(MemoryError::Git)?;
-
+            }
+        }
         Ok(changes)
     }
 
     /// Diff two commits and resolve the changed memory files to structured refs.
     ///
-    /// Only `.md` files under `global/` or `projects/` (namespace directories) are considered.
-    /// Added/modified files go into `upserted`; deleted files go into `removed`.
-    /// A git type change (e.g. a tracked regular memory file replaced by a
-    /// symlink, or vice versa) is treated as an old-side removal plus a
-    /// new-side upsert, so a memory that `list_memories` will no longer see
-    /// (symlinks are skipped there) is dropped from derived indexes rather
-    /// than left stale.
+    /// Only `.md` files under `global/` or `projects/` (namespace directories)
+    /// are considered. Each changed file is resolved to a
+    /// [`crate::types::MemoryRef`] by parsing the blob's YAML frontmatter (new
+    /// side for upserts, old side for removals) — the same authority
+    /// `list_memories` uses to build the canonical index keys, so hierarchical
+    /// scope paths are never split ambiguously. Files whose frontmatter cannot
+    /// be parsed, or whose object is not a memory at all (e.g. a symlink blob),
+    /// are counted in [`ResolvedChanges::unresolved`] rather than silently
+    /// dropped; a git failure while reading a blob the diff itself reported is
+    /// an error.
     ///
-    /// Each changed file is resolved to a [`crate::types::MemoryRef`] by
-    /// parsing the blob's YAML frontmatter (new tree for upserts, old tree
-    /// for removals) — the same authority `list_memories` uses to build the
-    /// canonical index keys, so hierarchical scope paths are never split
-    /// ambiguously. Files whose frontmatter cannot be parsed, or whose object
-    /// is not a memory at all (e.g. a symlink blob), are counted in
-    /// [`ResolvedChanges::unresolved`] rather than silently dropped; a git
-    /// failure while reading a blob the diff itself reported is an error.
+    /// A git type change (a tracked regular memory file replaced by a symlink,
+    /// or the reverse) is reported as an old-side removal plus a new-side
+    /// upsert, so a memory that `list_memories` will no longer see (symlinks
+    /// are skipped there) is dropped from derived indexes rather than left
+    /// stale.
     ///
-    /// Must be called from within `spawn_blocking` since it uses git2.
+    /// Must be called from within `spawn_blocking` since it reads git objects.
     pub(crate) fn diff_changed_refs(
         &self,
         old_oid: [u8; 20],
         new_oid: [u8; 20],
     ) -> Result<ResolvedChanges, MemoryError> {
-        let repo = self
-            .inner
-            .lock()
-            .expect("lock poisoned — prior panic corrupted state");
-
-        let new_git_oid = git2::Oid::from_bytes(&new_oid).map_err(MemoryError::Git)?;
-        let new_tree = repo.find_commit(new_git_oid)?.tree()?;
-
-        // A zero OID indicates an unborn branch (no prior commits). In that case,
-        // diff against an empty tree so all files appear as additions.
-        let old_tree = if old_oid == [0u8; 20] {
-            None
-        } else {
-            let old_git_oid = git2::Oid::from_bytes(&old_oid).map_err(MemoryError::Git)?;
-            Some(repo.find_commit(old_git_oid)?.tree()?)
-        };
-        let diff = repo.diff_tree_to_tree(old_tree.as_ref(), Some(&new_tree), None)?;
-
-        /// A changed memory file path, tagged with the tree that holds its blob.
-        enum ChangedPath {
-            Upserted(String),
-            Removed(String),
-        }
-
-        fn tracked_memory_path(path: Option<&std::path::Path>) -> Option<&str> {
-            let path_str = path?.to_str()?;
-            // Only care about .md files under global/ or projects/ (namespace directories)
-            if !path_str.ends_with(".md") {
-                return None;
-            }
-            if !path_str.starts_with("global/") && !path_str.starts_with("projects/") {
-                return None;
-            }
-            Some(path_str)
-        }
-
-        // Collect the changed paths first: `foreach` callbacks cannot
-        // propagate errors, and blob resolution must be able to fail.
-        let mut changed: Vec<ChangedPath> = Vec::new();
-        diff.foreach(
-            &mut |delta, _progress| {
-                use git2::Delta;
-
-                match delta.status() {
-                    Delta::Added | Delta::Modified => {
-                        if let Some(p) = tracked_memory_path(delta.new_file().path()) {
-                            changed.push(ChangedPath::Upserted(p.to_string()));
-                        }
-                    }
-                    Delta::Renamed | Delta::Copied => {
-                        // For renames, the old path must be removed from the index
-                        // to avoid leaving a ghost vector behind.
-                        if matches!(delta.status(), Delta::Renamed)
-                            && let Some(p) = tracked_memory_path(delta.old_file().path())
-                        {
-                            changed.push(ChangedPath::Removed(p.to_string()));
-                        }
-                        if let Some(p) = tracked_memory_path(delta.new_file().path()) {
-                            changed.push(ChangedPath::Upserted(p.to_string()));
-                        }
-                    }
-                    Delta::Deleted => {
-                        if let Some(p) = tracked_memory_path(delta.old_file().path()) {
-                            changed.push(ChangedPath::Removed(p.to_string()));
-                        }
-                    }
-                    Delta::Typechange => {
-                        // The tracked path changed object type (e.g. a regular
-                        // memory file `100644` became a symlink `120000`, or the
-                        // reverse). Mirror it as remove-old + add-new: the old
-                        // blob must leave the index, and the new object is
-                        // upserted only if it resolves to a valid memory. When
-                        // the new side is a symlink (its blob is a target path,
-                        // not memory markdown) resolution fails and it is
-                        // counted `unresolved`, forcing degrade + repair — which
-                        // matches `list_memories`, that skips symlinks entirely.
-                        if let Some(p) = tracked_memory_path(delta.old_file().path()) {
-                            changed.push(ChangedPath::Removed(p.to_string()));
-                        }
-                        if let Some(p) = tracked_memory_path(delta.new_file().path()) {
-                            changed.push(ChangedPath::Upserted(p.to_string()));
-                        }
-                    }
-                    _ => {}
+        let mut changes = ResolvedChanges::default();
+        for change in crate::git_read::changed_files(&self.root, old_oid, new_oid)? {
+            match change.kind {
+                ChangeKind::Added | ChangeKind::Modified => {
+                    self.resolve_change(
+                        &mut changes,
+                        change.new_blob.as_deref(),
+                        &change.path,
+                        true,
+                    );
                 }
+                ChangeKind::Removed => {
+                    self.resolve_change(
+                        &mut changes,
+                        change.old_blob.as_deref(),
+                        &change.path,
+                        false,
+                    );
+                }
+                ChangeKind::TypeChanged => {
+                    self.resolve_change(
+                        &mut changes,
+                        change.old_blob.as_deref(),
+                        &change.path,
+                        false,
+                    );
+                    self.resolve_change(
+                        &mut changes,
+                        change.new_blob.as_deref(),
+                        &change.path,
+                        true,
+                    );
+                }
+            }
+        }
+        Ok(changes)
+    }
 
-                true
-            },
-            None,
-            None,
-            None,
-        )
-        .map_err(MemoryError::Git)?;
-
-        /// Resolve a changed path to a `MemoryRef` via the blob's frontmatter.
-        ///
-        /// `Ok(None)` means the blob exists but is not a parseable memory
-        /// (the caller counts it as unresolved); `Err` means git could not
-        /// produce a blob the diff itself reported, which indicates a
-        /// repository-level problem rather than a bad file.
-        fn resolve_blob_ref(
-            repo: &Repository,
-            tree: &git2::Tree<'_>,
-            path: &str,
-        ) -> Result<Option<crate::types::MemoryRef>, MemoryError> {
-            let entry = tree.get_path(std::path::Path::new(path))?;
-            let blob = entry.to_object(repo)?.peel_to_blob()?;
-            let Ok(raw) = std::str::from_utf8(blob.content()) else {
+    /// Parse one changed blob into a `MemoryRef`, counting unresolvable files.
+    fn resolve_change(
+        &self,
+        changes: &mut ResolvedChanges,
+        blob: Option<&[u8]>,
+        path: &str,
+        upsert: bool,
+    ) {
+        let Some(raw) = blob.and_then(|bytes| std::str::from_utf8(bytes).ok()) else {
+            warn!(
+                path,
+                "changed memory file is not UTF-8; cannot resolve its reference"
+            );
+            changes.unresolved += 1;
+            return;
+        };
+        match Memory::from_markdown(raw) {
+            Ok(memory) => {
+                if upsert {
+                    changes.upserted.push(memory.mem_ref());
+                } else {
+                    changes.removed.push(memory.mem_ref());
+                }
+            }
+            Err(error) => {
                 warn!(
                     path,
-                    "changed memory file is not UTF-8; cannot resolve its reference"
+                    error = %error,
+                    "changed memory file has unparseable frontmatter; cannot resolve its reference"
                 );
-                return Ok(None);
-            };
-            match Memory::from_markdown(raw) {
-                Ok(memory) => Ok(Some(memory.mem_ref())),
-                Err(e) => {
-                    warn!(
-                        path,
-                        error = %e,
-                        "changed memory file has unparseable frontmatter; cannot resolve its reference"
-                    );
-                    Ok(None)
-                }
+                changes.unresolved += 1;
             }
         }
-
-        let mut changes = ResolvedChanges::default();
-        for change in changed {
-            match change {
-                ChangedPath::Upserted(path) => match resolve_blob_ref(&repo, &new_tree, &path)? {
-                    Some(mref) => changes.upserted.push(mref),
-                    None => changes.unresolved += 1,
-                },
-                ChangedPath::Removed(path) => {
-                    // Removals can only appear when an old tree exists.
-                    let Some(old_tree) = old_tree.as_ref() else {
-                        return Err(MemoryError::Index(format!(
-                            "diff reported removal of '{path}' without an old tree"
-                        )));
-                    };
-                    match resolve_blob_ref(&repo, old_tree, &path)? {
-                        Some(mref) => changes.removed.push(mref),
-                        None => changes.unresolved += 1,
-                    }
-                }
-            }
-        }
-
-        Ok(changes)
     }
 
     // -----------------------------------------------------------------------
@@ -1236,7 +1108,9 @@ impl MemoryRepo {
 
                 let path = match path {
                     Some(p) => p,
-                    None => continue,
+                    None => {
+                        continue;
+                    }
                 };
 
                 let our_blob = conflict
@@ -1350,6 +1224,7 @@ impl MemoryRepo {
             // and symlink protections.
             self.assert_within_root(&info.path)?;
             if let Some(parent) = info.path.parent() {
+                #[allow(clippy::disallowed_methods)]
                 std::fs::create_dir_all(parent)?;
             }
             self.write_memory_file(&info.path, &chosen_bytes)?;
@@ -1415,7 +1290,9 @@ impl MemoryRepo {
                 // so this path never remembers less than it did before #365.
                 index.read(true)?;
             }
-            Err(e) => return Err(MemoryError::Git(e)),
+            Err(e) => {
+                return Err(MemoryError::Git(e));
+            }
         }
         Ok(index)
     }
@@ -1440,7 +1317,9 @@ impl MemoryRepo {
             Err(e) if e.code() == ErrorCode::UnbornBranch || e.code() == ErrorCode::NotFound => {
                 repo.commit(Some("HEAD"), &sig, &sig, message, &tree, &[])?
             }
-            Err(e) => return Err(MemoryError::Git(e)),
+            Err(e) => {
+                return Err(MemoryError::Git(e));
+            }
         };
 
         Ok(oid)
@@ -1519,7 +1398,9 @@ impl MemoryRepo {
                             suffixes.push(name.to_os_string());
                         }
                         match p.parent() {
-                            Some(par) => p = par.to_path_buf(),
+                            Some(par) => {
+                                p = par.to_path_buf();
+                            }
                             _none => {
                                 return Err(MemoryError::InvalidInput {
                                     reason: "cannot resolve any ancestor of path".into(),
@@ -1951,7 +1832,7 @@ mod tests {
     #[test]
     fn redact_url_strips_userinfo() {
         assert_eq!(
-            redact_url("https://user:ghp_token123@github.com/org/repo.git"),
+            redact_url("https://user:test_token123@github.com/org/repo.git"),
             "https://[REDACTED]@github.com/org/repo.git"
         );
     }
@@ -2122,7 +2003,9 @@ mod tests {
                         let mut buf = [0u8; 2048];
                         while !request.windows(4).any(|window| window == b"\r\n\r\n") {
                             match socket.read(&mut buf).await {
-                                Ok(0) | Err(_) => return,
+                                Ok(0) | Err(_) => {
+                                    return;
+                                }
                                 Ok(n) => request.extend_from_slice(&buf[..n]),
                             }
                         }
@@ -2848,7 +2731,7 @@ mod tests {
             vec![
                 "global/binary".to_string(),
                 "global/broken".to_string(),
-                "projects/a/b/mem".to_string(),
+                "projects/a/b/mem".to_string()
             ],
             "public method must return repo-path strings (not canonical keys) \
              and must include unparseable + non-UTF-8 files, not drop them"
@@ -3290,3 +3173,19 @@ mod failure_path_tests {
         assert!(matches!(error, MemoryError::Git(_)), "{error:?}");
     }
 }
+
+// Regression guard: ed25519 SSH auth on Windows requires OpenSSL backend.
+// Without `libssh2-sys/openssl-on-win32`, libssh2 uses WinCNG on Windows,
+// which lacks ed25519 support and causes auth failures.
+// libssh2-sys emits `cargo:rustc-cfg=LIBSSH2_OPENSSL` when the feature is set.
+#[allow(dead_code)]
+#[cfg(windows)]
+const _SSH_USES_OPENSSL_BACKEND: () = {
+    // This const assert ensures the OpenSSL backend is active on Windows.
+    // The build will fail to find this cfg if openssl-on-win32 is not set.
+    #[cfg(not(libssh2_openssl_backend))]
+    compile_error!(
+        "Windows SSH must use OpenSSL backend for ed25519 support. Enable libssh2-sys/openssl-on-win32 feature in Cargo.toml."
+    );
+    ()
+};
