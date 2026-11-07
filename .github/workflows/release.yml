@@ -256,6 +256,7 @@ jobs:
           done
 
   # Undraft the release after every artifact is uploaded.
+
   publish-release:
     needs: [create-release, publish-binaries, publish-vsix]
     if: ${{ always() && needs.create-release.result == 'success' && needs.publish-binaries.result == 'success' && needs.publish-vsix.result == 'success' }}
