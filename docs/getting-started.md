@@ -36,12 +36,23 @@ JSON-RPC to its stdin, reading replies from its stdout. Memories are stored in
 The process owns a single connection. Logs go to stderr, and closing stdin ends
 the session, so each concurrent client starts its own process.
 
-Pali does not download its embedding model automatically — fetch
-BGE-small-en-v1.5 (about 130 MB) once before the first `pali serve`:
+Pali downloads its embedding model from HuggingFace Hub on first run when the model
+files are not present locally. BGE-small-en-v1.5 (about 130 MB) is downloaded to
+`~/.cache/huggingface/hub/models--BAAI--bge-small-en-v1.5` (or `$HF_HOME` if set):
 
 ```bash
-scripts/fetch-model.sh
-pali warmup  # verifies the files load correctly
+pali serve  # first run downloads the model
+```
+
+The download is a one-time operation; subsequent runs load from the cached files.
+Downloads are performed synchronously at startup (may take ~1 minute) with no
+progress bar (status logged via tracing).
+
+To pre-populate the cache before the first run, or for air-gapped environments:
+
+```bash
+scripts/fetch-model.sh  # manual download to default model directory
+pali warmup             # verifies the files load correctly
 ```
 
 `scripts/fetch-model.sh` writes to the default model directory (or
@@ -92,8 +103,8 @@ untracked-but-not-ignored files, and writes
 `.pali/insights.json`: repository, path, language, HEAD commit, content hash,
 recent commit subjects, and — with `--blame` — per-line commit IDs. The
 insights are deterministic counts and paths (language mix, top-level areas,
-largest files, TODO/FIXME markers, test-file ratio, project files), never model
-output or file content. A file whose path or contents look sensitive is
+largest files, TODO/FIXME markers, test-file ratio, project files, never model
+output or file content). A file whose path or contents look sensitive is
 excluded whole rather than redacted, and findings name the rule, path, and line,
 never the matched value.
 
@@ -158,6 +169,13 @@ pali serve
 
 `ssh://` and scp-like `git@host:path` remotes work too and need no token:
 Pali uses a default key in `~/.ssh` or the running ssh-agent.
+
+**Windows note:** SSH remotes require ed25519 key support. Modern `ssh-keygen`
+defaults to ed25519, which requires the OpenSSL crypto backend on Windows
+(WinCNG lacks ed25519 support). The Windows binary is built with
+`libssh2-sys/openssl-on-win32` feature enabled, which configures libssh2 to use
+OpenSSL instead of WinCNG for SSH. See [ADR-0046](adr/0046-ssh-git-remotes.md)
+for details.
 
 For a private HTTPS remote, configure git credentials the usual way — a
 credential helper or a `~/.netrc` entry — or set `PALI_GIT_TOKEN` to a personal

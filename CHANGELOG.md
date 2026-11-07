@@ -2,6 +2,22 @@
 
 ## Changes
 
+- **Windows SSH remotes now support ed25519 keys.** On Windows, libssh2
+  is now built with the OpenSSL crypto backend (`libssh2-sys/openssl-on-win32`
+  feature) instead of WinCNG, which lacks ed25519 support. The default
+  `ssh-keygen` key type (ed25519) now works with SSH git remotes on Windows.
+  See [ADR-0046](docs/adr/0046-ssh-git-remotes.md) for details.
+- **Automatic HuggingFace model download on first run.** When the embedding
+  model files are missing locally, Pali automatically downloads `config.json`,
+  `tokenizer.json`, and `model.safetensors` (BGE-small-en-v1.5, ~130 MB) from
+  HuggingFace Hub. Downloads are cached under `HF_HOME` (defaults to
+  `~/.cache/huggingface`) and respect `HF_ENDPOINT` for self-hosted mirrors.
+  Progress bars are suppressed in headless mode; status is logged via tracing.
+  First-run latency is documented in `docs/getting-started.md`.
+  - Resolves issue where users in air-gapped environments get a cryptic error.
+  - `scripts/fetch-model.sh` remains the documented manual provisioning path.
+  - ADR-0049 is superseded; ADR-0016 is updated to reference the restored
+    `hf-hub` usage.
 - **Private-repository downloads work with a stored token.** The browser
   download URL (`github.com/.../releases/download/...`) answers 404 for a
   private repository even with a valid token, so the installer now retries the
