@@ -1413,6 +1413,7 @@ test("the MCP provider publishes nothing when no binary resolves", async () => {
     return originalLoad.call(this, request, ...rest);
   };
   try {
+    delete require.cache[require.resolve("../out/extension")];
     const extension = require("../out/extension");
     extension.activate({
       extensionPath: extensionRoot,

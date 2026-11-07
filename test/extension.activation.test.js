@@ -24,7 +24,7 @@ const shippedInstructions = fs.readFileSync(
 const CONTRIBUTED_COMMANDS = (pkg.contributes?.commands ?? []).map((entry) => entry.command);
 
 function disposable() {
-  return { dispose() {} };
+  return { dispose() { } };
 }
 
 /** A `pali.*` configuration backed by a plain object the test can mutate. */
@@ -77,7 +77,7 @@ function makeVscode({ settings, workspaceFolders, rootPath }) {
     fire(value) {
       for (const listener of [...this.listeners]) listener(value);
     }
-    dispose() {}
+    dispose() { }
   }
 
   class McpStdioServerDefinition {
@@ -107,8 +107,8 @@ function makeVscode({ settings, workspaceFolders, rootPath }) {
         return {
           appendLine: (line) => state.output.push(String(line)),
           append: (chunk) => state.output.push(String(chunk)),
-          show() {},
-          dispose() {},
+          show() { },
+          dispose() { },
         };
       },
       async showInformationMessage(message) {
@@ -128,7 +128,7 @@ function makeVscode({ settings, workspaceFolders, rootPath }) {
       },
       async withProgress(options, task) {
         state.progressTitles.push(options.title);
-        return task({ report() {} }, { onCancellationRequested: () => disposable() });
+        return task({ report() { } }, { onCancellationRequested: () => disposable() });
       },
     },
     workspace: {
@@ -140,7 +140,7 @@ function makeVscode({ settings, workspaceFolders, rootPath }) {
         return disposable();
       },
     },
-    env: { openExternal() {} },
+    env: { openExternal() { } },
     lm: {
       registerMcpServerDefinitionProvider(id, provider) {
         state.providerId = id;
@@ -271,7 +271,7 @@ function makeSandbox({ bundled = true, settings = {}, workspaceFolders = true } 
 /** Poll until `predicate` holds; activation settles asynchronously. */
 async function waitFor(predicate, label, timeoutMs = 5_000) {
   const deadline = Date.now() + timeoutMs;
-  for (;;) {
+  for (; ;) {
     if (predicate()) return;
     if (Date.now() > deadline) assert.fail(`timed out waiting for ${label}`);
     await new Promise((resolve) => setTimeout(resolve, 20));

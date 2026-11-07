@@ -9,17 +9,17 @@ import * as config from './config';
 
 // Returns the pali path to be used, or null if pali is not installed.
 export async function activate(disposables: vscode.Disposable[],
-                               globalStoragePath: string,
-                               extensionPath: string,
-                               onInstalled?: () => void,
-                               getToken?: () => Promise<string | null>):
-    Promise<common.PrepareResult> {
+  globalStoragePath: string,
+  extensionPath: string,
+  onInstalled?: () => void,
+  getToken?: () => Promise<string | null>):
+  Promise<common.PrepareResult> {
   const ui = await UI.create(disposables, globalStoragePath, extensionPath,
-                             onInstalled, getToken);
+    onInstalled, getToken);
   disposables.push(vscode.commands.registerCommand(
-      'pali.install', async () => common.installLatest(ui)));
+    'pali.install', async () => common.installLatest(ui)));
   disposables.push(vscode.commands.registerCommand(
-      'pali.update', async () => common.checkUpdates(true, ui)));
+    'pali.update', async () => common.checkUpdates(true, ui)));
   // The installer cannot read VS Code settings itself. Passing the configured
   // model path lets prepare() and installLatest() skip the download offer for
   // a model the user already provisioned.
@@ -27,12 +27,12 @@ export async function activate(disposables: vscode.Disposable[],
   return await common.prepare(ui, await config.get<boolean>('checkUpdates'));
 }
 
-class UI {
+export class UI {
   static async create(disposables: vscode.Disposable[],
-                      globalStoragePath: string,
-                      extensionRoot: string,
-                      onInstalled?: () => void,
-                      tokenGetter?: () => Promise<string | null>): Promise<UI> {
+    globalStoragePath: string,
+    extensionRoot: string,
+    onInstalled?: () => void,
+    tokenGetter?: () => Promise<string | null>): Promise<UI> {
     const ui = new UI(disposables, globalStoragePath, extensionRoot, tokenGetter);
     ui.installed = onInstalled;
     await ui.resolvePaliPath();
@@ -40,9 +40,9 @@ class UI {
   }
 
   private constructor(private disposables: vscode.Disposable[],
-                      private globalStoragePath: string,
-                      private extensionRoot: string,
-                      private tokenGetter?: () => Promise<string | null>) {}
+    private globalStoragePath: string,
+    private extensionRoot: string,
+    private tokenGetter?: () => Promise<string | null>) { }
 
   /** Set by activate(): re-resolves and restarts the server after an install. */
   installed?: () => void;
@@ -55,7 +55,7 @@ class UI {
   async getToken(): Promise<string | null> {
     return (await this.tokenGetter?.()) ?? null;
   }
-  async choose(prompt: string, options: string[]): Promise<string|undefined> {
+  async choose(prompt: string, options: string[]): Promise<string | undefined> {
     return await vscode.window.showInformationMessage(prompt, ...options);
   }
   slow<T>(title: string, result: Promise<T>) {
@@ -66,8 +66,8 @@ class UI {
     };
     return Promise.resolve(vscode.window.withProgress(opts, () => result));
   }
-  progress<T>(title: string, cancel: AbortController|null,
-              body: (progress: (fraction: number) => void) => Promise<T>) {
+  progress<T>(title: string, cancel: AbortController | null,
+    body: (progress: (fraction: number) => void) => Promise<T>) {
     const opts = {
       location: vscode.ProgressLocation.Notification,
       title: title,
@@ -79,14 +79,14 @@ class UI {
       let lastFraction = 0;
       return body(fraction => {
         if (fraction > lastFraction) {
-          progress.report({increment: 100 * (fraction - lastFraction)});
+          progress.report({ increment: 100 * (fraction - lastFraction) });
           lastFraction = fraction;
         }
       });
     });
     return Promise.resolve(result); // Thenable to real promise.
   }
-  localize(message: string, ...args: Array<string|number|boolean>): string {
+  localize(message: string, ...args: Array<string | number | boolean>): string {
     let ret = message;
     for (const i in args) {
       ret = ret.replace(`{${i}}`, args[i].toString());
@@ -99,12 +99,12 @@ class UI {
     this.disposables.push(vscode.commands.registerCommand(name, body));
   }
 
-  async shouldReuse(release: string): Promise<boolean|undefined> {
+  async shouldReuse(release: string): Promise<boolean | undefined> {
     const message = `pali ${release} is already installed!`;
     const use = 'Use the installed version';
     const reinstall = 'Delete it and reinstall';
     const response =
-        await vscode.window.showInformationMessage(message, use, reinstall);
+      await vscode.window.showInformationMessage(message, use, reinstall);
     if (response === use) {
       // Find pali within the existing directory.
       return true;
@@ -117,7 +117,7 @@ class UI {
     }
   }
 
-  private _pathUpdated: Promise<void>|null = null;
+  private _pathUpdated: Promise<void> | null = null;
 
   async promptReload(message: string) {
     vscode.window.showInformationMessage(message);
@@ -128,16 +128,16 @@ class UI {
 
   async promptUpdate(oldVersion: string, newVersion: string) {
     const message = 'An updated pali language server is available.\n ' +
-                    `Would you like to upgrade to pali ${newVersion}? ` +
-                    `(from ${oldVersion})`;
+      `Would you like to upgrade to pali ${newVersion}? ` +
+      `(from ${oldVersion})`;
     const update = `Install pali ${newVersion}`;
     const dontCheck = 'Don\'t ask again';
     const response =
-        await vscode.window.showInformationMessage(message, update, dontCheck);
+      await vscode.window.showInformationMessage(message, update, dontCheck);
     if (response === update) {
       await common.installLatest(this);
     } else if (response === dontCheck) {
-      config.update('checkUpdates', false, vscode.ConfigurationTarget.Global);
+      await config.update('checkUpdates', false, vscode.ConfigurationTarget.Global);
     }
   }
 
@@ -146,7 +146,7 @@ class UI {
     // Backwards compatibility: if it's a relative path with a slash, interpret
     // relative to project root.
     if (!path.isAbsolute(p) && p.includes(path.sep) &&
-        vscode.workspace.rootPath !== undefined) {
+      vscode.workspace.rootPath !== undefined) {
       p = path.join(vscode.workspace.rootPath, p);
     }
 
@@ -157,10 +157,12 @@ class UI {
 
   get paliPath(): string { return this._paliPath as string; }
   set paliPath(p: string) {
+    this._paliPath = p;
     this._pathUpdated = new Promise(resolve => {
       config.update('path', p, vscode.ConfigurationTarget.Global).then(() => {
-        this._paliPath = p;
         resolve();
+      }).catch(() => {
+        // Ignore errors; path update failure is non-critical.
       });
     });
   }

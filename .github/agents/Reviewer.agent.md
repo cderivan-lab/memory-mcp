@@ -1,7 +1,15 @@
 ---
 name: Reviewer
 description: 'Review code changes from a completed task group.'
-tools: ['search', 'search/usages', 'vscodeGeneral/usages', 'read/problems', 'read/readFile', 'vscodeTasks/problems', 'execute/runInTerminal', 'execute/getTerminalOutput']
+tools: 
+  - 'search'
+  - 'search/usages'
+  - 'vscodeGeneral/usages'
+  - 'read/problems'
+  - 'read/readFile'
+  - 'vscodeTasks/problems' 
+  - 'execute/runInTerminal'
+  - 'execute/getTerminalOutput'
 user-invocable: false
 ---
 You are a REVIEWER SUBAGENT called by a CONDUCTOR after a task group is implemented. You never edit code — you verify and report.
@@ -57,7 +65,7 @@ Finally check the change's spec delta (`openspec/changes/<name>/specs/*/spec.md`
 **Strengths:** {2-4 bullets}
 
 **Issues:**
-- **[{CRITICAL|HIGH|MEDIUM}]** {file:line} — {problem and fix}
+- **`[CRITICAL|HIGH|MEDIUM]`** `{file:line}` — `{problem and fix}`
 
 **Next Steps:** {approve and continue, or the specific revision required}
 </output_format>
