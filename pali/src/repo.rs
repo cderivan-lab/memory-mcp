@@ -3173,3 +3173,19 @@ mod failure_path_tests {
         assert!(matches!(error, MemoryError::Git(_)), "{error:?}");
     }
 }
+
+// Regression guard: ed25519 SSH auth on Windows requires OpenSSL backend.
+// Without `libssh2-sys/openssl-on-win32`, libssh2 uses WinCNG on Windows,
+// which lacks ed25519 support and causes auth failures.
+// libssh2-sys emits `cargo:rustc-cfg=LIBSSH2_OPENSSL` when the feature is set.
+#[allow(dead_code)]
+#[cfg(windows)]
+const _SSH_USES_OPENSSL_BACKEND: () = {
+    // This const assert ensures the OpenSSL backend is active on Windows.
+    // The build will fail to find this cfg if openssl-on-win32 is not set.
+    #[cfg(not(libssh2_openssl_backend))]
+    compile_error!(
+        "Windows SSH must use OpenSSL backend for ed25519 support. Enable libssh2-sys/openssl-on-win32 feature in Cargo.toml."
+    );
+    ()
+};
