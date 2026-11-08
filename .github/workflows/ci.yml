@@ -24,14 +24,14 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@v4 # v7.0.0
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config g++
-      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master (2026-03-27)
+      - uses: dtolnay/rust-toolchain@stable # master (2026-03-27)
         with:
           toolchain: stable
           components: rustfmt
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - uses: Swatinem/rust-cache@v2.9.2 # v2.9.1
         with:
           cache-bin: "false"
       - name: cargo fmt --check
@@ -48,14 +48,14 @@ jobs:
         features:
           - ""
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@v4 # v7.0.0
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config g++
-      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master (2026-03-27)
+      - uses: dtolnay/rust-toolchain@stable # master (2026-03-27)
         with:
           toolchain: stable
           components: clippy
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - uses: Swatinem/rust-cache@v2.9.2 # v2.9.1
         with:
           key: clippy-${{ matrix.features }}
           cache-bin: "false"
@@ -71,13 +71,13 @@ jobs:
         features:
           - ""
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@v4 # v7.0.0
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config g++
-      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master (2026-03-27)
+      - uses: dtolnay/rust-toolchain@stable # master (2026-03-27)
         with:
           toolchain: stable
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - uses: Swatinem/rust-cache@v2.9.2 # v2.9.1
         with:
           key: test-${{ matrix.features }}
           cache-bin: "false"
@@ -113,7 +113,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@v4 # v7.0.0
       - name: Install a virtual display
         run: |
           sudo apt-get update
@@ -122,10 +122,10 @@ jobs:
       # job needs the same Rust toolchain and native dependencies as `test`.
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config g++
-      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master (2026-03-27)
+      - uses: dtolnay/rust-toolchain@stable # master (2026-03-27)
         with:
           toolchain: stable
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - uses: Swatinem/rust-cache@v2.9.2 # v2.9.1
         with:
           key: e2e
           cache-bin: "false"
@@ -133,7 +133,7 @@ jobs:
       # suite launches, `test-resources` holds ExTester's VS Code and
       # ChromeDriver. Bump the salt when the cached layout or the pinned
       # VS Code major changes.
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      - uses: actions/cache@v4 # v4
         with:
           path: |
             .vscode-test
@@ -165,7 +165,7 @@ jobs:
           EOF
       - name: Notification click end-to-end
         run: xvfb-run -a npm run test:e2e:ui
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@v4 # v7.0.1
         if: failure()
         with:
           name: e2e-failure-artifacts
@@ -179,7 +179,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@v4 # v7.0.0
       - name: Install dependencies
         # `npm ci` pins the resolved tree, including the package.json overrides
         # that keep the dev-dependency tree off the audit report.
@@ -199,7 +199,7 @@ jobs:
             --out "$out"
           unzip -l "$out" | grep -F 'extension/out/extension.js' >/dev/null
           ls -l "$out"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@v4 # v7.0.1
         with:
           name: pali-memory-vsix
           path: "*.vsix"
@@ -227,14 +227,14 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@v4 # v7.0.0
       - name: Install system dependencies
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config g++
-      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master (2026-03-27)
+      - uses: dtolnay/rust-toolchain@stable # master (2026-03-27)
         with:
           toolchain: stable
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - uses: Swatinem/rust-cache@v2.9.2 # v2.9.1
         with:
           key: ${{ matrix.target }}
           cache-bin: "false"
@@ -250,11 +250,11 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master (2026-03-27)
+      - uses: actions/checkout@v4 # v7.0.0
+      - uses: dtolnay/rust-toolchain@stable # master (2026-03-27)
         with:
           toolchain: stable
-      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+      - uses: EmbarkStudios/cargo-deny-action@v2.1.1 # v2.1.1
         with:
           command: check
           rust-version: stable
@@ -277,14 +277,14 @@ jobs:
             rust_features: ""
             js_tests: true
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@v4 # v7.0.0
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config g++
-      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master (2026-03-27)
+      - uses: dtolnay/rust-toolchain@stable # master (2026-03-27)
         with:
           toolchain: stable
           components: llvm-tools-preview
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - uses: Swatinem/rust-cache@v2.9.2 # v2.9.1
         with:
           key: coverage-${{ matrix.name }}
           cache-bin: "false"
@@ -357,7 +357,7 @@ jobs:
           set -euo pipefail
           npm run test:coverage
       - name: Upload coverage artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@v4 # v7.0.1
         with:
           name: coverage-${{ matrix.name }}
           path: |
@@ -371,13 +371,13 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@v4 # v7.0.0
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
-      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master (2026-03-27)
+      - uses: dtolnay/rust-toolchain@stable # master (2026-03-27)
         with:
           toolchain: stable
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - uses: Swatinem/rust-cache@v2.9.2 # v2.9.1
         with:
           key: semver
           cache-bin: "false"
