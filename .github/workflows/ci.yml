@@ -342,7 +342,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p coverage
-          cargo llvm-cov nextest --workspace ${{ matrix.rust_features }} -j1 --no-fail-fast \
+          cargo llvm-cov nextest --workspace ${{ matrix.rust_features }} --no-fail-fast -j 1 \
             --lcov --output-path coverage/lcov.info
       - name: Install npm dependencies and build
         if: matrix.js_tests == 'true'
