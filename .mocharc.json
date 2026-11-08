@@ -6,8 +6,7 @@
         "test/**/*.test.mjs"
     ],
     "exclude": [
-        "test/e2e/**/*.test.js",
-        "test/e2e-ui/**/*.test.js"
+        "test/e2e/**/*.test.js"
     ],
     "recursive": true,
     "ui": "bdd",

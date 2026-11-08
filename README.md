@@ -48,7 +48,7 @@ always-on rule to `~/.copilot/instructions/pali-memory.instructions.md`.
 | `pali.remoteSync`| `false` | Pull every repository from the remote before startup; requires a non-empty `pali.remoteUrl` |
 | `pali.branch`    | `main`  | Branch used for push and pull                                             |
 | `pali.scope`     | empty   | Hook memory scope; empty derives it from the git repo name                |
-| `pali.modelPath` | empty   | Embedding model directory; empty uses the model the extension installed  |
+| `pali.modelPath` | empty   | Embedding model directory; empty lets the server resolve the model itself |
 | `pali.logLevel`  | `info`  | Log level for the extension, the MCP server, and the hooks                |
 
 `remoteUrl`, `remoteSync`, and `branch` are passed to the MCP server as
@@ -73,8 +73,7 @@ platform — `aarch64-apple-darwin.zip` (macOS, universal for arm64 and x64),
 - **Download now** fetches the archive for your platform, extracts the
   executable to `globalStorage/pali` (or `pali.exe` on Windows), makes it
   executable, updates `pali.path` to point there, and automatically restarts
-  the MCP server so it uses the new binary. It then asks separately whether to
-  download the embedding model, so neither download is forced.
+  the MCP server so it uses the new binary.
 - **Later** dismisses the prompt until the next extension activation; no
   download starts.
 
@@ -87,12 +86,11 @@ every other source. The GitHub download is the fallback: an install made before
 the binary was bundled, a platform the build did not cover, or a manual
 **Pali: Install pali**.
 
-Installing the binary also fetches the embedding model the server needs
-(BGE-small-en-v1.5, about 130 MB) into `globalStorage/models/bge-small-en-v1.5`
-from the same GitHub project. The server receives the directory as
-`PALI_MODEL_DIR`. If the model download fails, an error suggests
-`scripts/fetch-model.sh` and `PALI_MODEL_DIR` instead; the binary install
-still succeeds.
+The embedding model (BGE-small-en-v1.5, about 130 MB) is not downloaded by the
+extension: the server fetches it from HuggingFace on first use (ADR-0051) and
+honors `PALI_MODEL_DIR`, `HF_HOME`, and `HF_ENDPOINT`. Point `pali.modelPath`
+at a local model directory to skip the download, or use
+`scripts/fetch-model.sh` to place one there in advance.
 
 If the download fails, an error message includes manual install instructions
 with the release URL for your architecture. A prebuilt binary is also used if

@@ -58,8 +58,6 @@ node_modules/**/CHANGELOG.md
 node_modules/**/LICENSE*
 **/*.vsix
 .DS_Store
-test-resources/**
-.e2e-ui/**
 # Local environment file, if one exists in a developer checkout, and its
 # tracked template: neither is extension content.
 .env

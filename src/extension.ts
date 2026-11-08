@@ -65,7 +65,7 @@ let reportedModelPath: string | undefined;
  * Accept `pali.modelPath` only when the directory holds the model files the
  * server loads. A bad value is reported once and withheld from the server and
  * the hooks: passing it on would only surface later as an opaque startup
- * failure, and the server can still start on the installed model.
+ * failure, and the server can still resolve the model itself.
  */
 async function usableModelPath(configured: string): Promise<string | undefined> {
   if (!configured) {
@@ -82,7 +82,7 @@ async function usableModelPath(configured: string): Promise<string | undefined> 
     const message =
       `Pali: pali.modelPath is not usable — ${problem}. ` +
       `The server needs ${MODEL_FILES.join(', ')}. ` +
-      'Fix the setting, or clear it to use the installed model.';
+      'Fix the setting, or clear it to let the server resolve the model itself.';
     log.error(message);
     void vscode.window.showErrorMessage(message);
   }
@@ -100,7 +100,6 @@ async function settings(
   const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
   const configured = String(config.get('path') || 'pali').trim() || 'pali';
   const binary = resolved ?? (await resolveBinary(context));
-  const modelDir = await resolveModelDir(context.globalStorageUri.fsPath);
   return {
     binPath: binary.path ?? configured,
     repoPath: String(config.get('repoPath') || '').trim(),
@@ -108,7 +107,6 @@ async function settings(
     remoteSync: config.get<boolean>('remoteSync') ?? false,
     branch: String(config.get('branch') || 'main').trim() || 'main',
     scope: String(config.get('scope') || '').trim(),
-    modelDir: modelDir ?? undefined,
     modelPath: await usableModelPath(String(config.get('modelPath') || '').trim()),
     logLevel: normalizeLogLevel(config.get('logLevel')),
     scanBlame: Boolean(config.get('scanBlame')),
@@ -174,10 +172,8 @@ async function refreshServer(
   if (!resolved.path) {
     output.appendLine('pali: binary still not found; MCP server not started');
   } else {
-    const modelDir = await resolveModelDir(context.globalStorageUri.fsPath);
     output.appendLine(
-      `pali: using binary at ${resolved.path} (${resolved.source})` +
-        (modelDir ? ` (model: ${modelDir})` : ' (no installed model)'),
+      `pali: using binary at ${resolved.path} (${resolved.source})`,
     );
   }
   serverChanged.fire();

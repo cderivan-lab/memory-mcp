@@ -28,9 +28,8 @@ export interface ExtensionSettings {
   remoteSync: boolean;
   branch: string;
   scope: string;
-  // Directory of an auto-installed embedding model, when one is present.
-  modelDir?: string;
-  // Explicit model directory from `pali.modelPath`; wins over `modelDir`.
+  // Explicit model directory from `pali.modelPath`, passed to the server as
+  // PALI_MODEL_DIR.
   modelPath?: string;
   // Log level for the extension, the MCP server, and the hooks (default
   // `info`). One knob drives the whole project's verbosity.
@@ -58,8 +57,8 @@ function hookCommand(
     // hook log at ~/.pali-hooks/hook.log stays consistent with the rest.
     ["PALI_HOOK_LOG_LEVEL", config.logLevel],
     // The hook-spawned server embeds recall queries, so it needs the model
-    // too; the user's explicit model path wins over the installed copy.
-    ["PALI_MODEL_DIR", config.modelPath || config.modelDir],
+    // directory the user configured.
+    ["PALI_MODEL_DIR", config.modelPath],
   ].filter((pair): pair is [string, string] => Boolean(pair[1]));
 
   // Uninstall and updates delete the extension directory while a hook file
@@ -255,11 +254,9 @@ export function mcpServerDefinition(
   if (token && /^https?:\/\//i.test(config.remoteUrl || "")) {
     env.PALI_GIT_TOKEN = token;
   }
-  // The server refuses to start without model files. An explicit
-  // `pali.modelPath` wins; otherwise point it at the copy the extension
-  // installed; without either it falls back to the platform data dir.
+  // An explicit pali.modelPath points the server at a pre-provisioned model;
+  // without it the server resolves and downloads the model itself.
   if (config.modelPath) env.PALI_MODEL_DIR = config.modelPath;
-  else if (config.modelDir) env.PALI_MODEL_DIR = config.modelDir;
   // The server's tracing filter (RUST_LOG) mirrors the extension's log level
   // so `pali.logLevel` controls both sides of the pipe. The filter is scoped
   // to the `pali` crate so `debug` does not flood the server with dependency
@@ -299,9 +296,8 @@ export function workspaceBootstrapCommand(
   workspaceRoot: string,
 ): WorkspaceBootstrapCommand {
   const env: Record<string, string> = { NO_COLOR: "1" };
-  if (kind === "index") {
-    const modelDir = config.modelPath || config.modelDir;
-    if (modelDir) env.PALI_MODEL_DIR = modelDir;
+  if (kind === "index" && config.modelPath) {
+    env.PALI_MODEL_DIR = config.modelPath;
   }
   // Every subcommand logs through tracing, so the configured level applies the
   // same way it does to the server and the hooks.

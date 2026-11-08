@@ -18,12 +18,10 @@ const {
   extractBinaryFromArchive,
   installLatest,
   MODEL_FILES,
-  modelDir,
   modelPathProblem,
   parseLfsPointer,
   prepare,
   releaseAssetName,
-  resolveModelDir,
 } = require("../out/utils/install_pali");
 const { log, normalizeLogLevel, rustLogFilter } = require("../out/utils/logger");
 
@@ -196,21 +194,17 @@ test("scan runs against the workspace folder and needs no model", () => {
 });
 
 test("index hands the embedding model to the CLI", () => {
-  const installed = workspaceBootstrapCommand(
-    "index",
-    { ...settings, modelDir: "/storage/models/bge-small-en-v1.5" },
-    "/work/repo",
-  );
-  assert.deepEqual(installed.args, ["index", "--workspace", "/work/repo"]);
-  assert.equal(installed.env.PALI_MODEL_DIR, "/storage/models/bge-small-en-v1.5");
-
-  // An explicit pali.modelPath wins, matching the server definition.
   const configured = workspaceBootstrapCommand(
     "index",
-    { ...settings, modelPath: "/custom/models", modelDir: "/storage/models/bge-small-en-v1.5" },
+    { ...settings, modelPath: "/custom/models" },
     "/work/repo",
   );
+  assert.deepEqual(configured.args, ["index", "--workspace", "/work/repo"]);
   assert.equal(configured.env.PALI_MODEL_DIR, "/custom/models");
+
+  // No modelPath: the CLI resolves the model itself.
+  const bare = workspaceBootstrapCommand("index", settings, "/work/repo");
+  assert.equal(bare.env.PALI_MODEL_DIR, undefined);
 });
 
 test("scan carries blame, size, and memory settings", () => {
@@ -493,22 +487,6 @@ test("a missing binary is offered for download even when update checks are off",
   }
 });
 
-test("the model is only considered installed when all three files exist", async () => {
-  const storage = join(tmpdir(), `pali-test-model-${Date.now()}`);
-  const dir = modelDir(storage);
-  try {
-    await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, "config.json"), "{\n}\n", "utf8");
-    assert.equal(await resolveModelDir(storage), null, "partial install is not usable");
-
-    await writeFile(join(dir, "tokenizer.json"), "{}\n", "utf8");
-    await writeFile(join(dir, "model.safetensors"), "weights", "utf8");
-    assert.equal(await resolveModelDir(storage), dir);
-  } finally {
-    await rm(storage, { recursive: true, force: true });
-  }
-});
-
 test("an unusable pali.modelPath names what is missing", async () => {
   const root = join(tmpdir(), `pali-test-model-path-${Date.now()}`);
   const dir = join(root, "bge-small-en-v1.5");
@@ -558,44 +536,23 @@ test("LFS pointers parse, real model files do not", () => {
   assert.equal(parseLfsPointer('{"hidden_size": 384}'), null);
 });
 
-test("an installed model is exported to the server as PALI_MODEL_DIR", () => {
-  const definition = mcpServerDefinition(
-    { ...settings, modelDir: "/storage/models/bge-small-en-v1.5" },
-    token,
-  );
-  assert.equal(definition.env.PALI_MODEL_DIR, "/storage/models/bge-small-en-v1.5");
-});
-
-test("pali.modelPath is exported as PALI_MODEL_DIR and wins over the installed model", () => {
+test("pali.modelPath is exported to the server as PALI_MODEL_DIR", () => {
   const configured = mcpServerDefinition(
     { ...settings, modelPath: "/custom/models/bge-small-en-v1.5" },
     token,
   );
   assert.equal(configured.env.PALI_MODEL_DIR, "/custom/models/bge-small-en-v1.5");
-
-  const both = mcpServerDefinition(
-    { ...settings, modelPath: "/custom/models", modelDir: "/storage/models/bge-small-en-v1.5" },
-    token,
-  );
-  assert.equal(both.env.PALI_MODEL_DIR, "/custom/models");
 });
 
 test("hook commands carry the model directory for the hook-spawned server", () => {
   const entry = buildHookConfig(
     "/ext",
-    { ...settings, modelPath: "/custom/models", modelDir: "/storage/models/bge-small-en-v1.5" },
+    { ...settings, modelPath: "/custom/models" },
   ).hooks.sessionStart[0];
   assert.match(entry.bash, /PALI_MODEL_DIR='\/custom\/models'/);
   assert.match(entry.powershell, /\$env:PALI_MODEL_DIR='\/custom\/models';/);
 
-  // No modelPath: the installed model dir is used instead.
-  const installed = buildHookConfig(
-    "/ext",
-    { ...settings, modelDir: "/storage/models/bge-small-en-v1.5" },
-  ).hooks.sessionStart[0];
-  assert.match(installed.bash, /PALI_MODEL_DIR='\/storage\/models\/bge-small-en-v1\.5'/);
-
-  // Neither set: no variable, so the server falls back to its own resolution.
+  // No modelPath: no variable, so the server falls back to its own resolution.
   const bare = buildHookConfig("/ext", settings).hooks.sessionStart[0];
   assert.doesNotMatch(bare.bash, /PALI_MODEL_DIR/);
   assert.doesNotMatch(bare.powershell, /PALI_MODEL_DIR/);
@@ -1176,43 +1133,6 @@ test("a cached binary that is an HTML login page counts as missing", async () =>
   }
 });
 
-test("a model dir whose files are HTML login pages is not installed", async () => {
-  const storage = join(tmpdir(), `pali-test-model-login-${Date.now()}`);
-  const dir = modelDir(storage);
-  const html = "<!DOCTYPE html>\n<html><head><title>SSO</title></head></html>";
-  try {
-    await mkdir(dir, { recursive: true });
-    await writeFile(join(dir, "config.json"), html, "utf8");
-    await writeFile(join(dir, "tokenizer.json"), html, "utf8");
-    await writeFile(join(dir, "model.safetensors"), html, "utf8");
-    assert.equal(
-      await resolveModelDir(storage),
-      null,
-      "HTML login pages must not count as an installed model",
-    );
-  } finally {
-    await rm(storage, { recursive: true, force: true });
-  }
-});
-
-test("the model resolver reads the same model manifest as the crate", async () => {
-  // The resolver must not carry its own copy of the model layout: the Rust
-  // loader embeds src/model-manifest.json, so a divergence would point PALI_MODEL_DIR
-  // at a directory the server never resolves.
-  const manifest = JSON.parse(
-    await readFile(join(__dirname, "..", "src", "model-manifest.json"), "utf8"),
-  );
-
-  assert.equal(modelDir("/storage"), join("/storage", "models", manifest.dir));
-  assert.deepEqual(MODEL_FILES, [
-    manifest.files.config,
-    manifest.files.tokenizer,
-    manifest.files.weights,
-  ]);
-  for (const name of MODEL_FILES) {
-    assert.doesNotMatch(name, /[\\/]/, `${name} must be a bare file name`);
-  }
-});
 
 // Regression: the provider used to publish a definition built from the
 // configured `pali.path` even when nothing was executable there, so VS Code

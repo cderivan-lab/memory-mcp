@@ -229,11 +229,9 @@ jobs:
           $S tar xzf /tmp/cargo-nextest.tar.gz -C /usr/local/bin
       - run: cargo nextest run --workspace --no-fail-fast ${{ matrix.features }}
 
-  # End-to-end: the extension inside a real VS Code host, and a UI run that
-  # clicks the install notification (VS Code exposes no API for that, so it
-  # needs a real driver). Both open a window, hence xvfb. The two large
-  # downloads — VS Code for each runner and ChromeDriver for ExTester — are
-  # cached, so only a lockfile change re-downloads them.
+  # End-to-end: the extension inside a real VS Code host. It opens a window,
+  # hence xvfb. The VS Code build the host suite launches is cached under
+  # `.vscode-test`, so only a lockfile change re-downloads it.
   test-e2e:
     runs-on: ubuntu-latest
     permissions:
@@ -269,15 +267,12 @@ jobs:
         with:
           key: e2e
           cache-bin: "false"
-      # Cached runner state: `.vscode-test` holds the VS Code build the host
-      # suite launches, `test-resources` holds ExTester's VS Code and
-      # ChromeDriver. Bump the salt when the cached layout or the pinned
-      # VS Code major changes.
+      # `.vscode-test` holds the VS Code build the host suite launches. Bump
+      # the salt when the cached layout or the pinned VS Code major changes.
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             .vscode-test
-            test-resources
           key: e2e-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-v1
           restore-keys: |
             e2e-${{ runner.os }}-
@@ -290,8 +285,7 @@ jobs:
         run: xvfb-run -a npm run test:e2e
       # Seed the repository-root `.env` the launchers read, so this job
       # exercises the documented configuration path instead of only the
-      # throwaway-directory fallback. PALI_E2E_STORAGE stays unset: ExTester's
-      # VS Code and ChromeDriver cache lives under test-resources.
+      # throwaway-directory fallback.
       - name: Seed the end-to-end environment
         run: |
           set -euo pipefail
@@ -303,17 +297,6 @@ jobs:
           PALI_INSTRUCTIONS_PATH=$RUNNER_TEMP/pali-e2e/instructions/pali-memory.instructions.md
           PALI_SKILLS_DIR=$RUNNER_TEMP/pali-e2e/skills
           EOF
-      - name: Notification click end-to-end
-        run: xvfb-run -a npm run test:e2e:ui
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: failure()
-        with:
-          name: e2e-failure-artifacts
-          path: |
-            test-resources/screenshots
-            test-resources/chromedriver.log
-          retention-days: 3
-
   # Package the extension the way a release does, so broken vsce packaging or a
   # stale manifest fails on the PR instead of on the tag. No binary is staged
   # here, so this VSIX is a packaging check rather than a shippable artifact.

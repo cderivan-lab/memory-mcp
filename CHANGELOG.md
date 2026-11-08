@@ -18,13 +18,17 @@
   - `scripts/fetch-model.sh` remains the documented manual provisioning path.
   - ADR-0049 is superseded; ADR-0016 is updated to reference the restored
     `hf-hub` usage.
+- **The extension no longer downloads the embedding model.** The
+  auto-installer now only fetches the prebuilt `pali` binary; the model is
+  resolved and downloaded by the server from HuggingFace on first use
+  (ADR-0051), and `pali.modelPath` remains the way to point the server at a
+  pre-provisioned model directory. The model-download notification and the
+  UI end-to-end suite that clicked it (`test:e2e:ui`) are removed.
 - **Private-repository downloads work with a stored token.** The browser
   download URL (`github.com/.../releases/download/...`) answers 404 for a
   private repository even with a valid token, so the installer now retries the
-  release asset API, which is the documented authenticated path. The model
-  archive is fetched from `raw.githubusercontent.com`, whose direct request
-  keeps the Authorization header that the `github.com/.../raw/...` redirect
-  dropped. A 404 now names the token requirement, and the release workflow
+  release asset API, which is the documented authenticated path. A 404 now
+  names the token requirement, and the release workflow
   publishes archives under the names the installer requests (`<target>.zip`,
   `<target>.tgz`).
 - **New `pali.remoteSync` extension setting (default `false`).** When

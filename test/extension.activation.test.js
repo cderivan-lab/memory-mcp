@@ -13,7 +13,7 @@ const os = require("node:os");
 const path = require("node:path");
 const Module = require("node:module");
 
-const { binaryName, bundledBinaryPath, MODEL_FILES } = require("../out/utils/install_pali");
+const { binaryName, bundledBinaryPath } = require("../out/utils/install_pali");
 const pkg = require("../package.json");
 
 const shippedInstructions = fs.readFileSync(
@@ -438,21 +438,17 @@ test("setToken stores, replaces, and clears the secret without touching settings
   }
 });
 
-test("restart reports the resolved binary and installed model", async () => {
+test("restart reports the resolved binary", async () => {
   const box = makeSandbox();
   try {
     const extension = loadExtension(box.vscode);
     await extension.activate(box.context);
 
-    const modelDir = path.join(box.storage, "models", "bge-small-en-v1.5");
-    fs.mkdirSync(modelDir, { recursive: true });
-    for (const name of MODEL_FILES) fs.writeFileSync(path.join(modelDir, name), "{}");
-
     // The command returns immediately; the refresh itself is asynchronous.
     await box.state.commands.get("pali.restart")();
     await waitFor(
-      () => box.state.output.some((line) => line.includes(`(model: ${modelDir})`)),
-      "the restart model line",
+      () => box.state.output.some((line) => line.includes("using binary at")),
+      "the restart binary line",
     );
   } finally {
     box.cleanup();

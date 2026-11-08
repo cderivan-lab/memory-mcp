@@ -3,6 +3,7 @@
 
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import * as zlib from "node:zlib";
 import { log } from "./logger";
 import modelManifest from "../model-manifest.json";
 
@@ -36,7 +37,6 @@ const PROJECT_API_URL = `${GITHUB_API_URL}/repos/${PROJECT_PATH}`;
  * same file (`pali/src/embedding/candle.rs`), so the directory this installer
  * writes to and the directory the server looks in cannot drift apart.
  */
-export const MODEL_DIR_NAME = modelManifest.dir;
 /** Every file the model loader requires, in manifest order. */
 export const MODEL_FILES = [
   modelManifest.files.config,
@@ -232,8 +232,7 @@ export async function extractBinaryFromArchive(
 
 /**
  * Read the first bytes of a file, or null when it cannot be read. Used to tell
- * a real binary or model file apart from an HTML login page a failed download
- * left behind.
+ * a real binary apart from an HTML login page a failed download left behind.
  */
 async function readBinaryHead(file: string, size = 64): Promise<Buffer | null> {
   const fh = await fs.open(file, "r");
@@ -250,35 +249,6 @@ async function readBinaryHead(file: string, size = 64): Promise<Buffer | null> {
 function isHtmlHead(head: Buffer): boolean {
   const text = head.toString("utf8", 0, Math.min(256, head.length));
   return /^\s*<(\!doctype|html)/i.test(text) || /<html[^>]*>/i.test(text);
-}
-
-/** Directory holding the model files; `PALI_MODEL_DIR` points the server here. */
-export function modelDir(storagePath: string): string {
-  return path.join(storagePath, "models", MODEL_DIR_NAME);
-}
-
-/**
- * Return the model directory when every required file is present and non-empty,
- * or null when it is missing or incomplete.
- */
-export async function resolveModelDir(storagePath: string): Promise<string | null> {
-  const dir = modelDir(storagePath);
-  for (const file of MODEL_FILES) {
-    try {
-      const st = await fs.stat(path.join(dir, file));
-      if (!st.isFile() || st.size === 0) return null;
-    } catch {
-      return null;
-    }
-  }
-  // A failed download can leave HTML login pages under the model file names;
-  // those must not count as an installed model.
-  const configHead = await readBinaryHead(path.join(dir, "config.json")).catch(() => null);
-  if (configHead && isHtmlHead(configHead)) {
-    log.warn(`model at ${dir} is an HTML login page, not a model — ignoring it`);
-    return null;
-  }
-  return dir;
 }
 
 /**

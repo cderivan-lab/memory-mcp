@@ -134,7 +134,7 @@
         },
         "pali.modelPath": {
           "default": "",
-          "description": "Directory containing the embedding model files (config.json, tokenizer.json, model.safetensors). Empty uses the model auto-installed by the extension, or the platform default when none is installed. A directory missing any of the files is reported and ignored.",
+          "description": "Directory containing the embedding model files (config.json, tokenizer.json, model.safetensors). Leave empty to let the server resolve the model itself: it downloads from HuggingFace on first use and honors PALI_MODEL_DIR, HF_HOME, and HF_ENDPOINT (ADR-0051). A directory missing any of the files is reported and ignored.",
           "type": "string"
         }
       },
@@ -164,7 +164,6 @@
     "pkguninstall": "code --uninstall-extension cderivan.pali-memory",
     "reinstall": "npm run pkguninstall & npm run pkginstall",
     "test:e2e": "vscode-test",
-    "test:e2e:ui": "node scripts/e2e-ui-fixtures.mjs && node scripts/run-e2e-ui.mjs",
     "test:coverage": "c8 mocha test/**/*.test.js test/**/*.test.mjs --options c8-node-options=http2 && cargo llvm-cov nextest",
     "test:vsix": "mocha test/vsix.test.js",
     "test:hooks": "mocha hooks/test/**/*.test.mjs",
@@ -184,8 +183,7 @@
     "chai": "^6.3.0",
     "esbuild": "^0.28.2",
     "mocha": "^12.0.3",
-    "typescript": "^7.0.2",
-    "vscode-extension-tester": "8.28.1"
+    "typescript": "^7.0.2"
   },
   "overrides": {
     "diff": "^9.0.0",

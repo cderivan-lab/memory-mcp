@@ -339,7 +339,7 @@ test("getToken returns null when no token getter is configured", async () => {
 test("getToken returns the token from the configured getter", async () => {
   const vscode = createFakeVscode({ configStore: { path: "pali" } });
   const UI = loadUI(vscode);
-  const ui = await UI.create([], os.tmpdir(), "/ext", undefined, async () => "sekret");
+  const ui = await UI.create([], os.tmpdir(), "/ext", async () => "sekret");
   assert.equal(await ui.getToken(), "sekret");
 });
 

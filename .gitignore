@@ -34,11 +34,6 @@ tsconfig.tsbuildinfo
 coverage/
 
 
-# vscode-extension-tester downloads its VS Code and ChromeDriver here.
-test-resources/
-
-# Generated stub binary and settings for the UI e2e run.
-.e2e-ui/
 .pali/
 images/icon.png
 .sonarlint/connectedMode.json
