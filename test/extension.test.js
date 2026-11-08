@@ -17,7 +17,6 @@ const {
   checkUpdates,
   extractBinaryFromArchive,
   installLatest,
-  installModel,
   MODEL_FILES,
   modelDir,
   modelPathProblem,
@@ -489,60 +488,8 @@ test("a missing binary is offered for download even when update checks are off",
     assert.equal(result.source, "missing");
     assert.equal(prompts.length, 1, "the install offer must not depend on checkUpdates");
     assert.match(prompts[0], /binary was not found/);
-    assert.equal(result.modelDir, null, "no model prompt without a startable server");
   } finally {
     await rm(storage, { recursive: true, force: true });
-  }
-});
-
-test("a usable pali.modelPath suppresses the model download offer", async () => {
-  // Regression: activation only looked in extension storage, so a user who
-  // provisioned the model through `pali.modelPath` was asked to download it
-  // again on every activation.
-  const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  const storage = join(tmpdir(), `pali-test-configured-storage-${suffix}`);
-  const configured = join(tmpdir(), `pali-test-configured-model-${suffix}`);
-  await mkdir(configured, { recursive: true });
-  for (const name of MODEL_FILES) {
-    await writeFile(join(configured, name), "{}\n", "utf8");
-  }
-
-  const prompts = [];
-  const ui = {
-    paliPath: process.execPath,
-    storagePath: storage,
-    extensionPath: join(tmpdir(), `pali-test-ext-${suffix}`),
-    modelPath: configured,
-    error: (message) => assert.fail(`unexpected error: ${message}`),
-    info: () => { },
-    command: () => { },
-    choose: async (prompt) => {
-      prompts.push(prompt);
-      return "Later";
-    },
-    slow: (_, promise) => promise,
-    progress: (_, __, body) => body(() => { }),
-    localize: (message) => message,
-    shouldReuse: async () => undefined,
-    promptReload: async () => { },
-    promptUpdate: async () => { },
-  };
-
-  try {
-    const result = await prepare(ui, false);
-    assert.equal(result.source, "configured");
-    assert.equal(result.modelDir, configured, "the configured model is used");
-    assert.equal(prompts.length, 0, "no download offer for a usable configured model");
-
-    // An unusable path must not suppress the offer: the server cannot start
-    // on it, and the extension reports that problem separately.
-    ui.modelPath = join(configured, "missing");
-    const fallback = await prepare(ui, false);
-    assert.equal(fallback.modelDir, null);
-    assert.equal(prompts.length, 1, "the offer returns when the configured path is unusable");
-  } finally {
-    await rm(storage, { recursive: true, force: true });
-    await rm(configured, { recursive: true, force: true });
   }
 });
 
@@ -813,7 +760,7 @@ function tarGzArchive(entries) {
 }
 
 /** A UI double that records every callback the install library invokes. */
-function makeInstallUi(storage, { token = "test-token", modelAnswer = "Later" } = {}) {
+function makeInstallUi(storage, { token = "test-token" } = {}) {
   const calls = { errors: [], infos: [], reloads: [], prompts: [], progress: [] };
   return {
     paliPath: "pali-nonexistent-xyz",
@@ -825,7 +772,6 @@ function makeInstallUi(storage, { token = "test-token", modelAnswer = "Later" } 
     command: () => { },
     choose: async (prompt) => {
       calls.prompts.push(prompt);
-      return modelAnswer;
     },
     slow: (_, promise) => promise,
     progress: (_, __, body) => body((fraction) => calls.progress.push(fraction)),
@@ -935,7 +881,7 @@ test("installLatest downloads the release asset through the authenticated API an
     assert.equal(maintenance.installedVersion, "1.0.0", "the binary version is recorded for update checks");
     assert.equal(ui.calls.reloads.length, 1, "the server restart is requested after install");
     assert.equal(ui.paliPath, installed, "the installed path is set for the UI");
-    assert.equal(ui.calls.prompts.length, 1, "model setup is offered after installing the binary");
+    assert.equal(ui.calls.prompts.length, 0, "the binary install offers no model setup");
     assert.ok(ui.calls.progress.length > 0, "download progress is reported");
   } finally {
     globalThis.fetch = originalFetch;
@@ -1249,10 +1195,10 @@ test("a model dir whose files are HTML login pages is not installed", async () =
   }
 });
 
-test("the installer reads the same model manifest as the crate", async () => {
-  // The installer must not carry its own copy of the model layout: the Rust
-  // loader embeds src/model-manifest.json, so a divergence would download files
-  // into a directory the server never resolves.
+test("the model resolver reads the same model manifest as the crate", async () => {
+  // The resolver must not carry its own copy of the model layout: the Rust
+  // loader embeds src/model-manifest.json, so a divergence would point PALI_MODEL_DIR
+  // at a directory the server never resolves.
   const manifest = JSON.parse(
     await readFile(join(__dirname, "..", "src", "model-manifest.json"), "utf8"),
   );
@@ -1265,79 +1211,6 @@ test("the installer reads the same model manifest as the crate", async () => {
   ]);
   for (const name of MODEL_FILES) {
     assert.doesNotMatch(name, /[\\/]/, `${name} must be a bare file name`);
-  }
-});
-
-test("installModel downloads and extracts the model zip", async () => {
-  const storage = join(tmpdir(), `pali-test-model-dl-${Date.now()}`);
-  await mkdir(storage, { recursive: true });
-  const zip = zipArchive([
-    { name: "config.json", data: Buffer.from('{"hidden_size": 384}') },
-    { name: "tokenizer.json", data: Buffer.from("{}") },
-    { name: "model.safetensors", data: Buffer.from("weights") },
-  ]);
-
-  const requests = [];
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async (url, init) => {
-    requests.push({ url: String(url), headers: init?.headers ?? {} });
-    return new Response(zip, {
-      status: 200,
-      headers: { "content-length": String(zip.length) },
-    });
-  };
-  const ui = makeInstallUi(storage);
-  try {
-    const dir = await installModel(ui);
-
-    assert.equal(dir, modelDir(storage));
-    assert.equal(await resolveModelDir(storage), dir, "all three files are usable");
-    assert.equal(requests.length, 1);
-    assert.equal(
-      requests[0].url,
-      "https://raw.githubusercontent.com/cderivan/memory-mcp/main/models/bge-small-en-v1.5.zip",
-      "the raw host avoids the redirect that drops the Authorization header",
-    );
-    assert.equal(requests[0].headers.Authorization, "Bearer test-token");
-    assert.equal(
-      await stat(join(dir, "bge-small-en-v1.5.zip")).then(
-        () => "exists",
-        () => "gone",
-      ),
-      "gone",
-      "the archive is removed after extraction",
-    );
-    assert.equal(ui.calls.errors.length, 0);
-  } finally {
-    globalThis.fetch = originalFetch;
-    await rm(storage, { recursive: true, force: true });
-  }
-});
-
-test("a failed model download reports the token hint and leaves no partial install", async () => {
-  const storage = join(tmpdir(), `pali-test-model-dl-403-${Date.now()}`);
-  await mkdir(storage, { recursive: true });
-
-  const requests = [];
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async (url, init) => {
-    requests.push({ headers: init?.headers ?? {} });
-    return new Response("Forbidden", { status: 403, statusText: "Forbidden" });
-  };
-  const ui = makeInstallUi(storage, { token: null });
-  try {
-    const dir = await installModel(ui);
-
-    assert.equal(dir, null, "the install is reported as failed, not thrown");
-    assert.equal(requests.length, 1);
-    assert.equal(requests[0].headers.Authorization, undefined, "no token means no header");
-    assert.equal(ui.calls.errors.length, 1);
-    assert.match(ui.calls.errors[0], /403/);
-    assert.match(ui.calls.errors[0], /Set HTTPS Token/);
-    assert.equal(await resolveModelDir(storage), null, "no partial model counts as installed");
-  } finally {
-    globalThis.fetch = originalFetch;
-    await rm(storage, { recursive: true, force: true });
   }
 });
 

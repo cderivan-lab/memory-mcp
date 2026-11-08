@@ -464,12 +464,11 @@ function activate(context: vscode.ExtensionContext): void {
 
   // Initialize the pali binary: resolve existing or offer to install. The
   // token getter reads secret storage per download so a token set via
-  // `pali.setToken` unlocks the private-repo binary and model downloads.
+  // `pali.setToken` unlocks private-repo binary downloads.
   installActivate(
     context.subscriptions,
     context.globalStorageUri.fsPath,
     context.extensionPath,
-    () => void refreshServer(context, serverChanged, output),
     async () => (await context.secrets.get(TOKEN_KEY)) ?? null,
   )
     .then((status) => {

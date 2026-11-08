@@ -3,24 +3,20 @@
 
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import * as zlib from "node:zlib";
 import { log } from "./logger";
 import modelManifest from "../model-manifest.json";
 
-// Binaries and the embedding model are published by the project's GitHub
-// repository. `releases/latest` is GitHub's stable alias for the newest
-// release, so a download needs no version lookup. Downloads carry the HTTPS
-// token the user stored via `pali.setToken` as a Bearer credential; a private
-// repository needs it, a public one ignores it.
+// Binary release archives are published by the project's GitHub repository.
+// `releases/latest` is GitHub's stable alias for the newest release, so a
+// download needs no version lookup. Downloads carry the HTTPS token the user
+// stored via `pali.setToken` as a Bearer credential; a private repository
+// needs it, a public one ignores it.
 //
 // A token cannot authenticate the browser download URL
 // (`github.com/<owner>/<repo>/releases/download/...`): a private repository
 // answers 404 even for a valid token. The release asset API is the
 // token-authenticated path, so `installLatest` resolves and downloads the
-// asset through it directly. Raw files have the same problem on
-// `github.com/<repo>/raw/...`, where the cross-origin redirect drops the
-// Authorization header, so the model archive is fetched from
-// `raw.githubusercontent.com` directly.
+// asset through it directly.
 const GITHUB_BASE_URL = "https://github.com";
 /**
  * REST host. It is not `${GITHUB_BASE_URL}/api/v3` (GitHub Enterprise's
@@ -47,8 +43,6 @@ export const MODEL_FILES = [
   modelManifest.files.tokenizer,
   modelManifest.files.weights,
 ];
-/** Project ref that carries the `models/<dir>.zip` archive. */
-const MODEL_REF = "main";
 
 // Log lines flow through the shared logger (src/utils/logger.ts): the
 // extension host routes them into the "Pali Memory" output channel, and
@@ -265,7 +259,7 @@ export function modelDir(storagePath: string): string {
 
 /**
  * Return the model directory when every required file is present and non-empty,
- * or null when the model still needs to be downloaded.
+ * or null when it is missing or incomplete.
  */
 export async function resolveModelDir(storagePath: string): Promise<string | null> {
   const dir = modelDir(storagePath);
@@ -640,111 +634,6 @@ async function downloadWithProgress(
   );
 }
 
-/**
- * Raw URL for the model archive at the tracked ref.
- *
- * `raw.githubusercontent.com` rather than `github.com/<repo>/raw/...`: the
- * latter redirects, and the Authorization header is dropped on the
- * cross-origin hop, so a private repository could never authenticate it.
- */
-function modelZipUrl(): string {
-  return `https://raw.githubusercontent.com/${PROJECT_PATH}/${MODEL_REF}/models/${MODEL_DIR_NAME}.zip`;
-}
-
-/**
- * Extract every file entry of a ZIP archive into `destDir` using only
- * `node:zlib` (no external unzip binary). The central directory supplies each
- * entry's compression method and size; the local header locates the data.
- * Handles stored (method 0) and DEFLATE (method 8) entries and rejects any
- * entry that would escape `destDir` (zip-slip).
- */
-async function extractZip(archive: Buffer, destDir: string): Promise<void> {
-  let eocd = -1;
-  const earliest = Math.max(0, archive.length - 0xffff - 22);
-  for (let i = archive.length - 22; i >= earliest; i -= 1) {
-    if (archive.readUInt32LE(i) === 0x06054b50) {
-      eocd = i;
-      break;
-    }
-  }
-  if (eocd < 0) throw new Error("model archive is not a valid ZIP");
-
-  const root = path.resolve(destDir);
-  const entries = archive.readUInt16LE(eocd + 10);
-  let offset = archive.readUInt32LE(eocd + 16);
-  for (let n = 0; n < entries; n += 1) {
-    if (archive.readUInt32LE(offset) !== 0x02014b50) {
-      throw new Error("corrupt ZIP central directory");
-    }
-    const method = archive.readUInt16LE(offset + 10);
-    const compressedSize = archive.readUInt32LE(offset + 20);
-    const nameLength = archive.readUInt16LE(offset + 28);
-    const extraLength = archive.readUInt16LE(offset + 30);
-    const commentLength = archive.readUInt16LE(offset + 32);
-    const localOffset = archive.readUInt32LE(offset + 42);
-    const name = archive.toString("utf8", offset + 46, offset + 46 + nameLength);
-    offset += 46 + nameLength + extraLength + commentLength;
-
-    if (name.endsWith("/")) continue; // directory entry
-
-    const dest = path.resolve(root, name);
-    if (dest !== root && !dest.startsWith(root + path.sep)) {
-      throw new Error(`model archive entry escapes the model dir: ${name}`);
-    }
-
-    if (archive.readUInt32LE(localOffset) !== 0x04034b50) {
-      throw new Error(`corrupt ZIP local header for ${name}`);
-    }
-    const localNameLength = archive.readUInt16LE(localOffset + 26);
-    const localExtraLength = archive.readUInt16LE(localOffset + 28);
-    const start = localOffset + 30 + localNameLength + localExtraLength;
-    const data = archive.subarray(start, start + compressedSize);
-    const bytes = method === 8 ? zlib.inflateRawSync(data) : Buffer.from(data);
-
-    await fs.mkdir(path.dirname(dest), { recursive: true });
-    await fs.writeFile(dest, bytes);
-  }
-}
-
-/** True when the model is already installed under the extension's storage. */
-export async function hasModel(storagePath: string): Promise<boolean> {
-  return (await resolveModelDir(storagePath)) !== null;
-}
-
-/**
- * Download the embedding model into the extension's storage. Returns the model
- * directory on success, or null after reporting the failure — the binary is
- * still usable with a model provisioned elsewhere (`PALI_MODEL_DIR`,
- * `scripts/fetch-model.sh`).
- */
-export async function installModel(ui: UI): Promise<string | null> {
-  const existing = await resolveModelDir(ui.storagePath);
-  if (existing) return existing;
-
-  const dir = modelDir(ui.storagePath);
-  const zipPath = path.join(dir, `${MODEL_DIR_NAME}.zip`);
-  log.info(`downloading model ${MODEL_DIR_NAME} from ${modelZipUrl()}`);
-  try {
-    await fs.mkdir(dir, { recursive: true });
-    await ui.progress(`Downloading the ${MODEL_DIR_NAME} model...`, null, async (report) => {
-      await downloadWithProgress(modelZipUrl(), zipPath, report, await ui.getToken?.());
-      // The archive holds the three model files at its root, so extracting
-      // it into the model dir lands them exactly where the loader looks.
-      await extractZip(await fs.readFile(zipPath), dir);
-    });
-  } catch (error) {
-    log.error(`model download failed: ${(error as Error).message}`);
-    ui.error(
-      `Could not download the ${MODEL_DIR_NAME} model: ${(error as Error).message}\n` +
-      "Run scripts/fetch-model.sh and set PALI_MODEL_DIR instead.",
-    );
-    return null;
-  } finally {
-    // Keep only the extracted files, not the archive.
-    await fs.rm(zipPath, { force: true }).catch(() => { });
-  }
-  return dir;
-}
 
 /**
  * UI interface that the install library calls back into.
@@ -771,64 +660,15 @@ export interface UI {
     body: (progress: (fraction: number) => void) => Promise<T>,
   ): Promise<T>;
   localize(message: string, ...args: Array<string | number | boolean>): string;
-  /**
-   * Configured `pali.modelPath`, when the user set one. A usable directory
-   * suppresses the model download offer: the server starts on it, so asking
-   * to download a model would be wrong.
-   */
-  modelPath?: string;
-  /**
-   * Called after an install finishes, so the host can re-resolve the server
-   * inputs and restart it: an install is the moment a server that had nothing
-   * to start with becomes startable, without waiting for the next activation.
-   */
-  installed?(): void;
   shouldReuse(release: string): Promise<boolean | undefined>;
   promptReload(message: string): Promise<void>;
   promptUpdate(oldVersion: string, newVersion: string): Promise<void>;
 }
 
-/**
- * Prepare the pali binary: resolve it, auto-install if missing (when
- * checkUpdates is true and binary is missing), and return the resolved path.
- */
-/** Outcome of resolving everything the server needs to start. */
+/** Outcome of resolving the pali binary. */
 export interface PrepareResult {
   paliPath: string | null;
-  modelDir: string | null;
   source: ResolveResult["source"];
-}
-
-/**
- * Return the model directory, offering a download when `offer` is set and the
- * model is not installed yet. Choosing "Later" (or dismissing the prompt)
- * leaves the model uninstalled for this session.
- */
-/**
- * The configured `pali.modelPath` when it holds every model file, else null.
- * An unusable path must not suppress the download offer: the server cannot
- * start on it, and the extension reports that problem separately.
- */
-async function usableConfiguredModel(ui: UI): Promise<string | null> {
-  const configured = ui.modelPath?.trim();
-  if (!configured) return null;
-  return (await modelPathProblem(configured)) === undefined ? configured : null;
-}
-
-async function provisionModel(ui: UI, offer: boolean): Promise<string | null> {
-  const configured = await usableConfiguredModel(ui);
-  if (configured) return configured;
-  const installed = await resolveModelDir(ui.storagePath);
-  if (installed || !offer) return installed;
-
-  const download = await ui.choose(
-    `The ${MODEL_DIR_NAME} embedding model (about 130 MB) is not installed. Download it now?`,
-    ["Download now", "Later"],
-  );
-  if (download !== "Download now") return null;
-  const downloaded = await installModel(ui);
-  if (downloaded) ui.installed?.();
-  return downloaded;
 }
 
 /**
@@ -860,36 +700,24 @@ export async function prepare(ui: UI, autoCheck: boolean): Promise<PrepareResult
   // prompts for an installed binary; gating first-install on it rebinds the
   // prompt to the wrong question, and leaves an installation that can never
   // start once update checks are off.
-  let modelOffered = false;
   if (resolved.source === "missing") {
     if (await provisionBinary(ui)) {
-      let installed = false;
       try {
-        // installLatest asks for the model in the same flow.
         await installLatest(ui);
-        installed = true;
       } catch (error) {
         ui.error(`Could not install pali: ${(error as Error).message}`);
       }
-      modelOffered = installed;
       resolved = await resolve();
     }
     if (resolved.source === "missing") {
-      // Nothing can start without the binary, so the model prompt would only
-      // be noise: the server would still be unstartable.
-      return { paliPath: null, modelDir: null, source: resolved.source };
+      return { paliPath: null, source: resolved.source };
     }
   }
 
   // A bundled binary is versioned with the extension, so the release channel
-  // and its update prompts do not apply. The model is still needed, and so is
-  // it when the binary was found on PATH or in the cache.
-  const modelDir = modelOffered
-    ? ((await usableConfiguredModel(ui)) ?? (await resolveModelDir(ui.storagePath)))
-    : await provisionModel(ui, true);
-
+  // and its update prompts do not apply.
   if (resolved.source === "bundled") {
-    return { paliPath: resolved.path, modelDir, source: resolved.source };
+    return { paliPath: resolved.path, source: resolved.source };
   }
 
   // If found on PATH, cache the absolute path so we do not re-search.
@@ -904,7 +732,6 @@ export async function prepare(ui: UI, autoCheck: boolean): Promise<PrepareResult
 
   return {
     paliPath: resolved.path,
-    modelDir,
     source: resolved.source,
   };
 }
@@ -994,9 +821,6 @@ export async function installLatest(ui: UI): Promise<void> {
     installedVersion: version,
     checkUpdates: true,
   });
-
-  // The server needs the embedding model too; keep its large download optional.
-  await provisionModel(ui, true);
 
   await ui.promptReload(`pali installed at ${ui.paliPath}`);
 }

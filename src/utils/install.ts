@@ -11,19 +11,14 @@ import * as config from './config';
 export async function activate(disposables: vscode.Disposable[],
   globalStoragePath: string,
   extensionPath: string,
-  onInstalled?: () => void,
   getToken?: () => Promise<string | null>):
   Promise<common.PrepareResult> {
   const ui = await UI.create(disposables, globalStoragePath, extensionPath,
-    onInstalled, getToken);
+    getToken);
   disposables.push(vscode.commands.registerCommand(
     'pali.install', async () => common.installLatest(ui)));
   disposables.push(vscode.commands.registerCommand(
     'pali.update', async () => common.checkUpdates(true, ui)));
-  // The installer cannot read VS Code settings itself. Passing the configured
-  // model path lets prepare() and installLatest() skip the download offer for
-  // a model the user already provisioned.
-  ui.modelPath = String((await config.get<string>('modelPath')) || '').trim();
   return await common.prepare(ui, await config.get<boolean>('checkUpdates'));
 }
 
@@ -31,10 +26,8 @@ export class UI {
   static async create(disposables: vscode.Disposable[],
     globalStoragePath: string,
     extensionRoot: string,
-    onInstalled?: () => void,
     tokenGetter?: () => Promise<string | null>): Promise<UI> {
     const ui = new UI(disposables, globalStoragePath, extensionRoot, tokenGetter);
-    ui.installed = onInstalled;
     await ui.resolvePaliPath();
     return ui;
   }
@@ -43,11 +36,6 @@ export class UI {
     private globalStoragePath: string,
     private extensionRoot: string,
     private tokenGetter?: () => Promise<string | null>) { }
-
-  /** Set by activate(): re-resolves and restarts the server after an install. */
-  installed?: () => void;
-  /** Configured `pali.modelPath`; a usable one suppresses the model offer. */
-  modelPath?: string;
 
   get storagePath(): string { return this.globalStoragePath; }
   get extensionPath(): string { return this.extensionRoot; }

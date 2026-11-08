@@ -53,6 +53,15 @@
 - **Repository CI removed.** No GitHub Actions or Forgejo workflows are
   checked in, so tagging and crate publishing are manual. Run the gates in
   `CONTRIBUTING.md` locally.
+- **Git reads unified on libgit2.** The `gix` dependency is gone:
+  HEAD resolution, tree diffs, and blob reads now go through `git2` in
+  `repo.rs`, and the scanner enumerates untracked files with libgit2's
+  `WT_NEW` status set. `MemoryError` loses its `Gix` variant on the
+  non-exhaustive enum; the variant was never published in a release, so
+  this is not a breaking change against v1.0.1 (confirmed by
+  `cargo semver-checks check-release --baseline-rev v1.0.1`: 202 checks
+  pass, no semver update required). Read/write semantics are unchanged;
+  reads still do not take the writer's mutex. See ADR-0054.
 - **OpenTelemetry/OTLP export removed (breaking).** The `otlp` cargo feature,
   the `--otlp-required` / `--otlp-optional` flags and their `PALI_OTLP_*`
   variables, and the `opentelemetry`, `opentelemetry_sdk`,

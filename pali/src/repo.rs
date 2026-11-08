@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
@@ -8,7 +9,6 @@ use tracing::{info, warn};
 
 use crate::{
     error::MemoryError,
-    git_read::ChangeKind,
     health::SubsystemReporter,
     types::{
         ChangedMemories, Memory, MemoryMetadata, MemoryName, PullResult, ResolvedChanges, Scope,
@@ -261,6 +261,244 @@ pub struct MemoryRepo {
 unsafe impl Send for MemoryRepo {}
 unsafe impl Sync for MemoryRepo {}
 
+// ---------------------------------------------------------------------------
+// Tree diff helpers
+// ---------------------------------------------------------------------------
+
+/// How a tracked path differs between two commits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ChangeKind {
+    /// The path exists only in the newer tree.
+    Added,
+    /// The path exists only in the older tree.
+    Removed,
+    /// The path exists in both trees with the same object kind, different content.
+    Modified,
+    /// The path kept its name but changed object kind, e.g. a regular file
+    /// became a symlink. Reported as an old-side removal plus a new-side
+    /// upsert, mirroring what a delete and an add would produce.
+    TypeChanged,
+}
+
+/// One changed memory file between two commits.
+struct TreeChange {
+    /// Repository-relative path, e.g. `global/notes/foo.md`.
+    path: String,
+    /// What happened to the path.
+    kind: ChangeKind,
+    /// Blob content on the older side, when the path was a blob there.
+    old_blob: Option<Vec<u8>>,
+    /// Blob content on the newer side, when the path is a blob there.
+    new_blob: Option<Vec<u8>>,
+}
+
+/// Compare the trees of two commits and return the memory files that changed.
+///
+/// `old_oid` may be `[0u8; 20]` for an unborn branch, in which case every file
+/// in the newer tree is reported as added. Only `.md` files under `global/` or
+/// `projects/` are returned: those are the namespace directories the memory
+/// store owns. Blob content is read eagerly for the returned files, since a
+/// memory store's diff touches a handful of small markdown files and callers
+/// that parse frontmatter would otherwise reopen the repository per file.
+fn changed_files(
+    root: &Path,
+    old_oid: [u8; 20],
+    new_oid: [u8; 20],
+) -> Result<Vec<TreeChange>, MemoryError> {
+    let repo = git2::Repository::open(root)?;
+    let new_tree = commit_tree(&repo, new_oid)?;
+    let old_tree = if old_oid == [0u8; 20] {
+        None
+    } else {
+        Some(commit_tree(&repo, old_oid)?)
+    };
+
+    let mut changes = Vec::new();
+    diff_trees(&repo, old_tree.as_ref(), Some(&new_tree), "", &mut changes)?;
+    Ok(changes)
+}
+
+fn commit_tree<'repo>(
+    repo: &'repo git2::Repository,
+    oid: [u8; 20],
+) -> Result<git2::Tree<'repo>, MemoryError> {
+    let id = git2::Oid::from_bytes(&oid)?;
+    Ok(repo.find_object(id, None)?.peel_to_tree()?)
+}
+
+/// A tree's entries keyed by file name, so both sides diff in one pass.
+fn tree_entries(tree: &git2::Tree) -> Result<BTreeMap<String, (i32, git2::Oid)>, MemoryError> {
+    let mut map = BTreeMap::new();
+    for entry in tree.iter() {
+        map.insert(entry.name()?.to_string(), (entry.filemode(), entry.id()));
+    }
+    Ok(map)
+}
+
+fn diff_trees(
+    repo: &git2::Repository,
+    old: Option<&git2::Tree>,
+    new: Option<&git2::Tree>,
+    prefix: &str,
+    out: &mut Vec<TreeChange>,
+) -> Result<(), MemoryError> {
+    let old_entries = old.map(tree_entries).transpose()?;
+    let new_entries = new.map(tree_entries).transpose()?;
+    let empty = BTreeMap::new();
+    let old_entries = old_entries.as_ref().unwrap_or(&empty);
+    let new_entries = new_entries.as_ref().unwrap_or(&empty);
+
+    for (name, (new_mode, new_id)) in new_entries {
+        let path = join_path(prefix, name);
+        match old_entries.get(name) {
+            None => collect_side(repo, *new_mode, *new_id, &path, ChangeKind::Added, out)?,
+            Some((old_mode, old_id)) => {
+                if old_id == new_id && old_mode == new_mode {
+                    continue;
+                }
+                match (is_tree_mode(*old_mode), is_tree_mode(*new_mode)) {
+                    (true, true) => {
+                        let old_tree = repo.find_object(*old_id, None)?.peel_to_tree()?;
+                        let new_tree = repo.find_object(*new_id, None)?.peel_to_tree()?;
+                        diff_trees(repo, Some(&old_tree), Some(&new_tree), &path, out)?;
+                    }
+                    (false, false) => {
+                        // A mode change between blob kinds (regular file,
+                        // symlink, submodule) is a type change, not an edit:
+                        // the old object must leave the index and the new one
+                        // is only upserted if it resolves to a memory.
+                        let kind = if same_blob_kind(*old_mode, *new_mode) {
+                            ChangeKind::Modified
+                        } else {
+                            ChangeKind::TypeChanged
+                        };
+                        if let Some(change) =
+                            memory_change(repo, &path, kind, Some(*old_id), Some(*new_id))?
+                        {
+                            out.push(change);
+                        }
+                    }
+                    // A directory replaced by a file, or the reverse: git
+                    // models this as a deletion and an addition, so emit the
+                    // whole subtree on the side that had one.
+                    (true, false) | (false, true) => {
+                        collect_side(repo, *old_mode, *old_id, &path, ChangeKind::Removed, out)?;
+                        collect_side(repo, *new_mode, *new_id, &path, ChangeKind::Added, out)?;
+                    }
+                }
+            }
+        }
+    }
+
+    for (name, (old_mode, old_id)) in old_entries {
+        if new_entries.contains_key(name) {
+            continue;
+        }
+        let path = join_path(prefix, name);
+        collect_side(repo, *old_mode, *old_id, &path, ChangeKind::Removed, out)?;
+    }
+
+    Ok(())
+}
+
+fn is_tree_mode(mode: i32) -> bool {
+    mode == 0o040000
+}
+
+/// Whether two non-tree entries are the same git object kind.
+///
+/// `100644` and `100755` are both regular files — an executable bit change is
+/// an edit, not a type change — while `120000` (symlink) and `160000`
+/// (submodule) are different kinds.
+fn same_blob_kind(old: i32, new: i32) -> bool {
+    let blob = |mode: i32| mode == 0o100644 || mode == 0o100755;
+    (blob(old) && blob(new)) || old == new
+}
+
+/// Join a tree path prefix and an entry name.
+///
+/// Tree entries carry only their own name, so the walk rebuilds the
+/// repository-relative path as it descends; the root contributes no separator.
+fn join_path(prefix: &str, name: &str) -> String {
+    if prefix.is_empty() {
+        name.to_string()
+    } else {
+        format!("{prefix}/{name}")
+    }
+}
+
+/// Emit one change per file under a subtree that exists on only one side.
+fn collect_side(
+    repo: &git2::Repository,
+    mode: i32,
+    id: git2::Oid,
+    path: &str,
+    kind: ChangeKind,
+    out: &mut Vec<TreeChange>,
+) -> Result<(), MemoryError> {
+    if is_tree_mode(mode) {
+        let tree = repo.find_object(id, None)?.peel_to_tree()?;
+        for entry in tree.iter() {
+            let child = join_path(path, entry.name()?);
+            collect_side(repo, entry.filemode(), entry.id(), &child, kind, out)?;
+        }
+        return Ok(());
+    }
+
+    let (old_id, new_id) = match kind {
+        ChangeKind::Removed => (Some(id), None),
+        _ => (None, Some(id)),
+    };
+    if let Some(change) = memory_change(repo, path, kind, old_id, new_id)? {
+        out.push(change);
+    }
+    Ok(())
+}
+
+/// Build a [`TreeChange`] for a path the memory store owns, loading its blob.
+fn memory_change(
+    repo: &git2::Repository,
+    path: &str,
+    kind: ChangeKind,
+    old_id: Option<git2::Oid>,
+    new_id: Option<git2::Oid>,
+) -> Result<Option<TreeChange>, MemoryError> {
+    if !is_memory_path(path) {
+        return Ok(None);
+    }
+    let old_blob = old_id
+        .map(|id| object_content(repo, id))
+        .transpose()?
+        .flatten();
+    let new_blob = new_id
+        .map(|id| object_content(repo, id))
+        .transpose()?
+        .flatten();
+    Ok(Some(TreeChange {
+        path: path.to_string(),
+        kind,
+        old_blob,
+        new_blob,
+    }))
+}
+
+fn object_content(repo: &git2::Repository, id: git2::Oid) -> Result<Option<Vec<u8>>, MemoryError> {
+    let object = repo.find_object(id, None)?;
+    // Symlinks are stored as blobs carrying the target path; a gitlink
+    // (submodule) under a memory path is reported by its recorded oid; any
+    // other object kind carries no content.
+    Ok(match object.kind() {
+        Some(git2::ObjectType::Blob) => object.as_blob().map(|blob| blob.content().to_vec()),
+        Some(git2::ObjectType::Commit) => Some(object.id().to_string().into_bytes()),
+        _ => None,
+    })
+}
+
+/// True for `.md` files inside the namespace directories the store owns.
+fn is_memory_path(path: &str) -> bool {
+    path.ends_with(".md") && (path.starts_with("global/") || path.starts_with("projects/"))
+}
+
 impl MemoryRepo {
     /// Open an existing git repo at `path`, or initialise a new one.
     ///
@@ -358,12 +596,16 @@ impl MemoryRepo {
     /// branch is unborn (no commits yet).
     pub async fn head_sha(self: &Arc<Self>) -> Option<String> {
         let root = self.root.clone();
-        // A read: it does not need the libgit2 handle, so it neither blocks on
-        // nor contends with the writer's mutex.
-        traced_spawn_blocking(move || crate::git_read::head_sha(&root))
-            .await
-            .ok()
-            .flatten()
+        // A read: it neither blocks on nor contends with the writer's mutex.
+        // Every failure is reported as `None`, treating a missing HEAD as
+        // "no commit yet" rather than an operational fault.
+        traced_spawn_blocking(move || -> Option<String> {
+            let repo = git2::Repository::open(&root).ok()?;
+            let commit = repo.head().ok()?.peel_to_commit().ok()?;
+            Some(commit.id().to_string())
+        })
+        .await
+        .ok()?
     }
 
     /// Absolute path for a memory's markdown file inside the repo.
@@ -959,7 +1201,7 @@ impl MemoryRepo {
         new_oid: [u8; 20],
     ) -> Result<ChangedMemories, MemoryError> {
         let mut changes = ChangedMemories::default();
-        for change in crate::git_read::changed_files(&self.root, old_oid, new_oid)? {
+        for change in changed_files(&self.root, old_oid, new_oid)? {
             let Some(qualified) = change.path.strip_suffix(".md").map(str::to_string) else {
                 continue;
             };
@@ -1001,7 +1243,7 @@ impl MemoryRepo {
         new_oid: [u8; 20],
     ) -> Result<ResolvedChanges, MemoryError> {
         let mut changes = ResolvedChanges::default();
-        for change in crate::git_read::changed_files(&self.root, old_oid, new_oid)? {
+        for change in changed_files(&self.root, old_oid, new_oid)? {
             match change.kind {
                 ChangeKind::Added | ChangeKind::Modified => {
                     self.resolve_change(
@@ -1565,7 +1807,10 @@ mod tests {
         // `display()` yields backslashes on Windows; a `file://` URL needs
         // forward slashes (and a third slash for the drive), so libgit2 can
         // resolve the local bare-remote path.
-        let url = format!("file:///{}", dir.path().display().to_string().replace('\\', "/"));
+        let url = format!(
+            "file:///{}",
+            dir.path().display().to_string().replace('\\', "/")
+        );
         (dir, url)
     }
 
