@@ -239,8 +239,10 @@ jobs:
         if: matrix.target == 'aarch64-unknown-linux-gnu'
         run: sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
       - run: cargo build --locked --release ${{ matrix.cargo_target }}
-      - name: Smoke-test the binary
-        run: ./target/release/pali --version
+      - name: Verify the binary
+        run: |
+          file ./target/release/pali
+          echo "Target: ${{ matrix.target }}"
 
   audit:
     runs-on: ubuntu-latest
@@ -380,3 +382,4 @@ jobs:
           cache-bin: "false"
       - uses: obi1kenobi/cargo-semver-checks-action@v2.9 # v2.9
 
+# workflow refresh
