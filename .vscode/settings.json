@@ -8,7 +8,7 @@
     },
     "js/ts.tsc.autoDetect": "off",
     "[rust]": {
-        "editor.defaultFormatter": "rust-lang.rust-analyzer"
+        "editor.defaultFormatter": "jinxdash.prettier-rust"
     },
     "markdown.validate.enabled": true,
     "sonarlint.connectedMode.project": {

@@ -55,6 +55,9 @@ scripts/fetch-model.sh  # manual download to default model directory
 pali warmup             # verifies the files load correctly
 ```
 
+On Windows use `scripts\fetch-model.ps1` instead — it is the PowerShell
+equivalent and needs only `curl.exe` (shipped with Windows 10 1803+).
+
 `scripts/fetch-model.sh` writes to the default model directory (or
 `$PALI_MODEL_DIR` if set). See [Configuration](configuration.md) for the
 resolution order and how to point at a model fetched elsewhere.
