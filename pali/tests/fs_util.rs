@@ -82,7 +82,10 @@ mod canonicalize_allow_missing_tests {
         std::fs::create_dir_all(&path).ok();
         // Create a symlink
         let link_path = path.join("link");
+        #[cfg(unix)]
         let _ = std::os::unix::fs::symlink("target", &link_path);
+        #[cfg(windows)]
+        let _ = std::os::windows::fs::symlink_dir("target", &link_path);
         let full_path = path.join("link/../other");
         let result = canonicalize_allow_missing(&full_path);
         println!("canonicalize symlink: {:?}", result);

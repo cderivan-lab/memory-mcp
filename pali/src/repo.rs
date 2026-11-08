@@ -23,14 +23,16 @@ use crate::{
 ///
 /// `https://user:token@host/path` → `https://[REDACTED]@host/path`
 pub(crate) fn redact_url(url: &str) -> String {
-    if let Some(at_pos) = url.find('@')
-        && let Some(scheme_end) = url.find("://")
-    {
-        let scheme = &url[..scheme_end + 3];
-        let after_at = &url[at_pos + 1..];
-        return format!("{}[REDACTED]@{}", scheme, after_at);
-    }
-    url.to_string()
+    let (prefix, after_at) = match url.split_once('@') {
+        Some(pair) => pair,
+        None => return url.to_string(),
+    };
+    let scheme_end = match prefix.find("://") {
+        Some(pos) => pos,
+        None => return url.to_string(),
+    };
+    let (scheme, _) = prefix.split_at(scheme_end + 3);
+    format!("{}[REDACTED]@{}", scheme, after_at)
 }
 
 /// Return the current HEAD commit OID as a 20-byte array.
@@ -3174,18 +3176,33 @@ mod failure_path_tests {
     }
 }
 
-// Regression guard: ed25519 SSH auth on Windows requires OpenSSL backend.
-// Without `libssh2-sys/openssl-on-win32`, libssh2 uses WinCNG on Windows,
-// which lacks ed25519 support and causes auth failures.
-// libssh2-sys emits `cargo:rustc-cfg=LIBSSH2_OPENSSL` when the feature is set.
-#[allow(dead_code)]
+// Regression guard: ed25519 SSH auth on Windows requires the OpenSSL
+// backend. Without `libssh2-sys/openssl-on-win32`, libssh2 uses WinCNG on
+// Windows, which lacks ed25519 support and causes auth failures.
+// `libssh2-sys`'s build script does not emit a `cargo:rustc-cfg` for the
+// backend choice, so the guard asserts the observable consequence instead:
+// the OpenSSL branch links the vendored static `ssl`/`crypto` (and
+// `advapi32`) libraries, while the WinCNG branch links none of them.
 #[cfg(windows)]
-const _SSH_USES_OPENSSL_BACKEND: () = {
-    // This const assert ensures the OpenSSL backend is active on Windows.
-    // The build will fail to find this cfg if openssl-on-win32 is not set.
-    #[cfg(not(libssh2_openssl_backend))]
-    compile_error!(
-        "Windows SSH must use OpenSSL backend for ed25519 support. Enable libssh2-sys/openssl-on-win32 feature in Cargo.toml."
-    );
-    ()
-};
+#[test]
+fn ssh_uses_openssl_backend_on_windows() {
+    let output = std::env::var_os("OUT_DIR").expect("test runs with OUT_DIR set");
+    let build_dir = Path::new(&output)
+        .parent()
+        .expect("OUT_DIR is <target>/build/<pkg>-<hash>/out");
+    let manifest = std::fs::read_to_string(build_dir.join("out_dir")).expect("out_dir file");
+    let manifest_path = Path::new(manifest.trim());
+    let output =
+        std::fs::read_to_string(manifest_path.join("output")).expect("libssh2-sys build output");
+    for directive in [
+        "cargo:rustc-link-lib=static=libssl",
+        "cargo:rustc-link-lib=static=libcrypto",
+        "cargo:rustc-link-lib=advapi32",
+    ] {
+        assert!(
+            output.lines().any(|line| line.trim() == directive),
+            "libssh2-sys must be built with the OpenSSL backend (openssl-on-win32); \
+             missing `{directive}` in its build output"
+        );
+    }
+}
