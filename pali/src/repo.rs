@@ -530,7 +530,6 @@ impl MemoryRepo {
             if !gitignore.exists() {
                 std::fs::write(&gitignore, ".memory-mcp-index/\n")?;
             }
-            // Commit .gitignore as the initial commit.
             {
                 let mut index = repo.index()?;
                 index.add_path(Path::new(".gitignore"))?;
@@ -550,11 +549,9 @@ impl MemoryRepo {
             repo
         };
 
-        // Set up or update the origin remote if a URL was provided.
         if let Some(url) = remote_url {
             match repo.find_remote("origin") {
                 Ok(existing) => {
-                    // Update the URL only when it differs from the current one.
                     let current_url = existing.url().unwrap_or("");
                     if current_url != url {
                         repo.remote_set_url("origin", url)?;
@@ -627,10 +624,8 @@ impl MemoryRepo {
                 .lock()
                 .expect("lock poisoned — prior panic corrupted state");
 
-            // Validate path is within repo root.
             arc.assert_within_root(&file_path)?;
 
-            // Ensure the parent directory exists.
             if let Some(parent) = file_path.parent() {
                 #[allow(clippy::disallowed_methods)]
                 std::fs::create_dir_all(parent)?;
@@ -754,11 +749,9 @@ impl MemoryRepo {
 
             Self::assert_exists_no_symlink(&source_path, &source_name)?;
 
-            // Read the source memory.
             let raw = arc.read_memory_file(&source_path)?;
             let source = Memory::from_markdown(&raw)?;
 
-            // Build destination: new ID, same content/tags/source, new scope/name.
             let metadata = MemoryMetadata::new(
                 dest_scope,
                 source.metadata.tags.clone(),
@@ -766,7 +759,6 @@ impl MemoryRepo {
             );
             let dest = Memory::from_validated(dest_name, source.content.clone(), metadata);
 
-            // Write destination, delete source, stage both, commit.
             // If anything fails after we start modifying the working tree,
             // reset hard to HEAD so we never leave dirty/untracked files.
             let commit_result = (|| -> Result<git2::Oid, MemoryError> {
@@ -1044,7 +1036,6 @@ impl MemoryRepo {
             ));
         }
 
-        // Write the merged tree and create the merge commit.
         index.write()?;
         let tree_oid = index.write_tree()?;
         let tree = repo.find_tree(tree_oid)?;
@@ -1095,7 +1086,6 @@ impl MemoryRepo {
                 .lock()
                 .expect("lock poisoned — prior panic corrupted state");
 
-            // ---- 1. Find origin -------------------------------------------------
             let mut remote = match repo.find_remote("origin") {
                 Ok(r) => r,
                 Err(e) if e.code() == ErrorCode::NotFound => {
@@ -1107,13 +1097,11 @@ impl MemoryRepo {
                 }
             };
 
-            // ---- 2. Fetch -------------------------------------------------------
             let callbacks = build_auth_callbacks();
             let mut fetch_opts = git2::FetchOptions::new();
             fetch_opts.remote_callbacks(callbacks);
             remote.fetch(&[&branch], Some(&mut fetch_opts), None)?;
 
-            // ---- 3. Resolve FETCH_HEAD ------------------------------------------
             let fetch_head = match repo.find_reference("FETCH_HEAD") {
                 Ok(r) => r,
                 Err(e) if e.code() == ErrorCode::NotFound => {
@@ -1144,7 +1132,6 @@ impl MemoryRepo {
                 }
             };
 
-            // ---- 4. Merge analysis ----------------------------------------------
             let (analysis, _preference) = repo.merge_analysis(&[&fetch_commit])?;
 
             if analysis.is_up_to_date() {
@@ -1307,10 +1294,6 @@ impl MemoryRepo {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // Private helpers
-    // -----------------------------------------------------------------------
-
     /// Resolve all index conflicts using a recency-based strategy.
     ///
     /// For each conflicted entry, the version with the more recent `updated_at`
@@ -1392,7 +1375,6 @@ impl MemoryRepo {
                 .and_then(|s| Memory::from_markdown(s).ok())
                 .map(|m| m.metadata.updated_at);
 
-            // Pick the winning content as raw bytes.
             let (chosen_bytes, label): (Vec<u8>, String) =
                 match (our_str.as_deref(), their_str.as_deref()) {
                     (Some(ours), Some(theirs)) => match (our_ts, their_ts) {
@@ -1465,7 +1447,6 @@ impl MemoryRepo {
             }
             self.write_memory_file(&info.path, &chosen_bytes)?;
 
-            // Stage the resolution.
             let relative =
                 info.path
                     .strip_prefix(&self.root)
@@ -1481,7 +1462,6 @@ impl MemoryRepo {
     }
 
     fn signature<'r>(&self, repo: &'r Repository) -> Result<Signature<'r>, MemoryError> {
-        // Try repo config first, then fall back to a default.
         let sig = repo
             .signature()
             .or_else(|_| Signature::now("memory-mcp", "memory-mcp@local"))?;
@@ -1771,10 +1751,6 @@ impl MemoryRepo {
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -2069,8 +2045,6 @@ mod tests {
         );
     }
 
-    // -- redact_url tests --------------------------------------------------
-
     #[test]
     fn redact_url_strips_userinfo() {
         assert_eq!(
@@ -2090,8 +2064,6 @@ mod tests {
         let url = "file:///tmp/bare.git";
         assert_eq!(redact_url(url), url);
     }
-
-    // -- assert_within_root tests ------------------------------------------
 
     #[test]
     fn assert_within_root_accepts_valid_path() {
@@ -2123,13 +2095,10 @@ mod tests {
         assert!(repo.assert_within_root(&outside).is_err());
     }
 
-    // -- local-only mode tests (no origin) ---------------------------------
-
     #[tokio::test]
     async fn push_local_only_returns_ok() {
         let dir = tempfile::tempdir().unwrap();
         let repo = open_repo(&dir, None);
-        // No origin configured — push should silently succeed.
         let result = repo.push("main").await;
         assert!(result.is_ok());
     }
@@ -2141,8 +2110,6 @@ mod tests {
         let result = repo.pull("main").await.unwrap();
         assert!(matches!(result, PullResult::NoRemote));
     }
-
-    // -- ssh remote classification and credential path ----------------------
 
     /// Regression guard: scp-like remotes (`git@host:path`) are SSH even
     /// though they carry no scheme, while an `https://host/path` remote must
@@ -2191,8 +2158,6 @@ mod tests {
             "git2 was built without SSH support: {error}"
         );
     }
-
-    // -- token and credential selection ------------------------------------
 
     /// A blank token must behave like an unset one: an empty environment entry
     /// would otherwise authenticate with an empty password.
@@ -2320,22 +2285,17 @@ mod tests {
         assert!(bare.find_reference("refs/heads/main").is_ok());
     }
 
-    // -- push/pull with local bare remote ----------------------------------
-
     #[tokio::test]
     async fn push_to_bare_remote() {
         let (_remote_dir, remote_url) = setup_bare_remote();
         let local_dir = tempfile::tempdir().unwrap();
         let repo = open_repo(&local_dir, Some(&remote_url));
 
-        // Save a memory so there's something to push.
         let mem = make_memory("test-push", "push content", 1_700_000_000);
         repo.save_memory(&mem).await.unwrap();
 
-        // Push should succeed.
         repo.push("main").await.unwrap();
 
-        // Verify the bare repo received the commit.
         let bare = git2::Repository::open_bare(_remote_dir.path()).unwrap();
         let head = bare.find_reference("refs/heads/main").unwrap();
         let commit = head.peel_to_commit().unwrap();
@@ -2352,7 +2312,6 @@ mod tests {
         let mem = make_memory("seed", "seed content", 1_700_000_000);
         repo.save_memory(&mem).await.unwrap();
 
-        // Pull from empty remote — should be up-to-date (not an error).
         let result = repo.pull("main").await.unwrap();
         assert!(matches!(result, PullResult::UpToDate));
     }
@@ -2385,7 +2344,6 @@ mod tests {
             result
         );
 
-        // Verify the memory file from A exists in B's working directory.
         let file = dir_b.path().join("global").join("from-a.md");
         assert!(file.exists(), "from-a.md should exist in repo B after pull");
     }
@@ -2400,12 +2358,9 @@ mod tests {
         repo.save_memory(&mem).await.unwrap();
         repo.push("main").await.unwrap();
 
-        // Pull immediately after push — should be up to date.
         let result = repo.pull("main").await.unwrap();
         assert!(matches!(result, PullResult::UpToDate));
     }
-
-    // -- conflict resolution tests -----------------------------------------
 
     #[tokio::test]
     async fn pull_merge_conflict_theirs_newer_wins() {
@@ -2531,11 +2486,8 @@ mod tests {
             result
         );
 
-        // Both repos should have all files.
         assert!(dir_a.path().join("global").join("mem-b.md").exists());
     }
-
-    // -- diff_changed_memories tests ----------------------------------------
 
     /// Helper: valid on-disk memory markdown (frontmatter + body) for diff
     /// tests — changed files are resolved from their frontmatter.

@@ -32,10 +32,7 @@ const MEMORY_CLOSE = "</pali_memory>";
 const MEMORY_BLOCK_RE = /<pali_memory>[\s\S]*?<\/pali_memory>/g;
 const LOG_WEIGHT = { debug: 10, info: 20, warn: 30, error: 40, off: 100 };
 
-// ---------------------------------------------------------------------------
-// Configuration
-// ---------------------------------------------------------------------------
-
+// Configuration`n
 function truthy(value) {
   return /^(1|true|yes|on)$/i.test(String(value ?? "").trim());
 }
@@ -59,10 +56,7 @@ export function hookConfig() {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Logging
-// ---------------------------------------------------------------------------
-
+// Logging`n
 function logFile() {
   return process.env.PALI_HOOK_LOG_FILE || join(STATE_DIR, "hook.log");
 }
@@ -93,10 +87,7 @@ function describeError(error) {
   return message.split("\n")[0].slice(0, 300);
 }
 
-// ---------------------------------------------------------------------------
-// Hook input / output
-// ---------------------------------------------------------------------------
-
+// Hook input / output`n
 /** Read the hook event JSON from stdin. Returns null for empty or malformed input. */
 export function readHookEvent() {
   let raw;
@@ -129,10 +120,7 @@ export async function runHook(name, fn) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Project scope
-// ---------------------------------------------------------------------------
-
+// Project scope`n
 function sanitizeComponent(component) {
   return component
     .replace(/[^\p{L}\p{N}._-]+/gu, "-")
@@ -167,10 +155,7 @@ export function projectScope(cwd, config = hookConfig()) {
   return sanitizeScope(name);
 }
 
-// ---------------------------------------------------------------------------
-// MCP over stdio
-// ---------------------------------------------------------------------------
-
+// MCP over stdio`n
 function unwrapResult(tool, message) {
   if (message.error) {
     throw new Error(`pali ${tool}: ${message.error.message || JSON.stringify(message.error)}`);
@@ -311,10 +296,7 @@ export function callTool(name, args, options = {}) {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Recall
-// ---------------------------------------------------------------------------
-
+// Recall`n
 /**
  * Hybrid recall, keeping snippets close enough to matter. Lexical-only hits
  * carry pali's -1.0 sentinel distance and always pass. Set
@@ -340,10 +322,7 @@ export async function recallMemories(query, options = {}) {
   return useful.filter((memory) => typeof memory?.name === "string" && memory.name).slice(0, limit);
 }
 
-// ---------------------------------------------------------------------------
-// Per-session de-duplication
-// ---------------------------------------------------------------------------
-
+// Per-session de-duplication`n
 function sessionStateFile(sessionId) {
   const safe = String(sessionId || "no-session")
     .replace(/[^A-Za-z0-9._-]+/g, "-")
@@ -383,10 +362,7 @@ export function recordInjected(sessionId, names) {
   } catch { }
 }
 
-// ---------------------------------------------------------------------------
-// Injection block
-// ---------------------------------------------------------------------------
-
+// Injection block`n
 export function stripMemoryBlocks(text) {
   return String(text ?? "").replace(MEMORY_BLOCK_RE, "");
 }
@@ -432,10 +408,7 @@ export function formatMemoryBlock({ scope, memories, intro, budget = 6000 }) {
   return [MEMORY_OPEN, head, kept.join("\n\n"), footer, MEMORY_CLOSE].join("\n");
 }
 
-// ---------------------------------------------------------------------------
-// Small utilities
-// ---------------------------------------------------------------------------
-
+// Small utilities`n
 export function sha256(text) {
   return createHash("sha256").update(String(text)).digest("hex");
 }

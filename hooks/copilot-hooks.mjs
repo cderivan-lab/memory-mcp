@@ -43,7 +43,6 @@ import {
   writeStateFile,
 } from "./pali-client.mjs";
 
-// ---------------------------------------------------------------------------
 // Session digest
 //
 // pali stores markdown verbatim and has no server-side LLM extraction step, so
@@ -57,7 +56,6 @@ import {
 //   tool.execution_start              -> data.toolName, data.arguments, data.toolCallId
 //   tool.execution_complete           -> data.toolCallId, data.success, data.error,
 //                                       data.shellExecution.exitCode
-// ---------------------------------------------------------------------------
 
 const LIMITS = {
   transcriptBytes: 32 * 1024 * 1024,
@@ -292,10 +290,7 @@ function sessionName({ day, sessionId, transcriptPath }) {
   return `copilot-session-${day}-${suffix}`;
 }
 
-// ---------------------------------------------------------------------------
-// Session capture and retention
-// ---------------------------------------------------------------------------
-
+// Session capture and retention`n
 const SESSION_TAGS = ["session", "auto-capture", "harness:copilot-cli"];
 const SESSION_TAG = "auto-capture";
 const NAME_PREFIX = "copilot-session-";
@@ -399,10 +394,7 @@ async function pruneCapturedSessions({ scope, keep, config, protect = [], dryRun
   return { forgotten, total: captured.length, kept: Math.max(0, captured.length - forgotten.length) };
 }
 
-// ---------------------------------------------------------------------------
-// Hook handlers
-// ---------------------------------------------------------------------------
-
+// Hook handlers`n
 const recallQuery = (scope) =>
   `${scope}: project overview, purpose, architecture, conventions, build and test commands, key decisions, known gotchas`;
 
@@ -513,10 +505,7 @@ async function agentStop(event, config) {
   return "";
 }
 
-// ---------------------------------------------------------------------------
-// Entry point
-// ---------------------------------------------------------------------------
-
+// Entry point`n
 const MODES = {
   "session-start": "sessionStart",
   sessionstart: "sessionStart",
