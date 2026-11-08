@@ -280,10 +280,6 @@ impl RepoRouter {
         )
     }
 
-    // -----------------------------------------------------------------------
-    // Write operations — route to the correct repo
-    // -----------------------------------------------------------------------
-
     /// Save a memory to the repo that owns its scope.
     pub async fn save_memory(&self, memory: &Memory) -> Result<(), MemoryError> {
         let repo = self.repo_for_scope(&memory.metadata.scope);
@@ -349,10 +345,6 @@ impl RepoRouter {
             Ok(dest)
         }
     }
-
-    // -----------------------------------------------------------------------
-    // Read operations — aggregate across all repos
-    // -----------------------------------------------------------------------
 
     /// `true` when `repo` is the repo that owns `scope` under the point-read
     /// routing rules (`repo_for_scope`).
@@ -486,10 +478,6 @@ impl RepoRouter {
         Ok(all_memories)
     }
 
-    // -----------------------------------------------------------------------
-    // Sync operations — push/pull each repo independently
-    // -----------------------------------------------------------------------
-
     /// Sync all repos: pull then push each one.
     ///
     /// Errors on individual repos do not abort the remaining repos — a
@@ -528,7 +516,6 @@ impl RepoRouter {
                         if matches!(pull_result, PullResult::NoRemote) {
                             has_remote = false;
                         }
-                        // Compute changed memories for incremental reindex.
                         if let PullResult::FastForward {
                             old_head: oh,
                             new_head: nh,
@@ -704,8 +691,8 @@ impl RepoRouter {
             return self.default_repo.head_sha().await;
         }
 
-        // Collect (label, sha) from all repos. Labels are already unique
-        // ("default" + each route prefix) and we sort for determinism.
+        // Labels are unique ("default" + each route prefix), so sorting them
+        // makes the composite string deterministic.
         let mut parts: Vec<(String, String)> = Vec::with_capacity(1 + self.routes.len());
 
         if let Some(sha) = self.default_repo.head_sha().await {

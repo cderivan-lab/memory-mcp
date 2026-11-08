@@ -21,10 +21,6 @@ fn v(version: u32) -> ChunkerVersion {
 
 const PARENT: &str = "550e8400-e29b-41d4-a716-446655440000";
 
-// ---------------------------------------------------------------------------
-// SourceSpan invariants (P1.5, P1.4)
-// ---------------------------------------------------------------------------
-
 /// P1.5 — red if construction accepts an empty or inverted span; a
 /// zero-length chunk has no identity and an inverted span cannot resolve.
 #[test]
@@ -75,10 +71,6 @@ fn slice_in_rejects_non_char_boundary() {
     assert!(span(0, 2).slice_in(content).is_err());
     assert_eq!(span(0, 3).slice_in(content).expect("boundary"), "aé");
 }
-
-// ---------------------------------------------------------------------------
-// FactId determinism and domain separation (P1.1, P1.2)
-// ---------------------------------------------------------------------------
 
 /// P1.1 — red if derivation stops being deterministic; rebuild
 /// idempotency and stable index addressing both rest on this.
@@ -145,10 +137,6 @@ fn fact_id_derive_rejects_span_body_length_mismatch() {
     assert!(FactId::derive(PARENT, v(1), span(0, 3), "toolong").is_err());
     assert!(FactId::derive(PARENT, v(1), span(0, 5), "short").is_ok());
 }
-
-// ---------------------------------------------------------------------------
-// FactId canonical form round-trips (P1.3, P1.4)
-// ---------------------------------------------------------------------------
 
 /// P1.3 — red if the rendered canonical form and the parser disagree;
 /// every index key, telemetry row, and wire field uses this string.
@@ -236,10 +224,6 @@ fn fact_id_parser_rejects_noncanonical_spellings() {
             .is_ok()
     );
 }
-
-// ---------------------------------------------------------------------------
-// FactRecord / MatchedChunk wire shapes (P1.4, P1.6, P1.8)
-// ---------------------------------------------------------------------------
 
 fn parent_ref() -> MemoryRef {
     MemoryRef::new(
@@ -437,10 +421,6 @@ fn chunker_version_serializes_transparently() {
     let back: ChunkerVersion = serde_json::from_str("7").expect("deserialize");
     assert_eq!(back, v(7));
 }
-
-// ---------------------------------------------------------------------------
-// Property-based tests (ADR-0042 ledger, generated-input coverage)
-// ---------------------------------------------------------------------------
 
 mod properties {
     use super::*;

@@ -19,10 +19,6 @@ use super::memory::MemoryRef;
 /// rendered [`FactId`] (16 hex chars = 64 bits).
 const DIGEST_HEX_LEN: usize = 16;
 
-// ---------------------------------------------------------------------------
-// ChunkerVersion
-// ---------------------------------------------------------------------------
-
 /// Version of the deterministic chunking algorithm that produced a chunk.
 ///
 /// Participates in [`FactId`] derivation: bumping the version invalidates
@@ -49,10 +45,6 @@ impl fmt::Display for ChunkerVersion {
         write!(f, "{}", self.0)
     }
 }
-
-// ---------------------------------------------------------------------------
-// SourceSpan
-// ---------------------------------------------------------------------------
 
 /// A half-open byte range `[start, end)` into a parent memory's markdown
 /// body (the `content` field — frontmatter is not addressable).
@@ -140,10 +132,6 @@ impl fmt::Display for SourceSpan {
         write!(f, "{}-{}", self.start, self.end)
     }
 }
-
-// ---------------------------------------------------------------------------
-// FactId
-// ---------------------------------------------------------------------------
 
 /// Deterministic identity of a single retrieval chunk ("fact").
 ///
@@ -359,10 +347,6 @@ impl<'de> Deserialize<'de> for FactId {
     }
 }
 
-// ---------------------------------------------------------------------------
-// FactRecord
-// ---------------------------------------------------------------------------
-
 /// One entry in the derived retrieval catalog (#262 slice 3).
 ///
 /// The parent memory id, chunker version, and source span live inside
@@ -532,10 +516,6 @@ impl FactRecord {
         self.id.span()
     }
 }
-
-// ---------------------------------------------------------------------------
-// MatchedChunk
-// ---------------------------------------------------------------------------
 
 /// Matched-chunk provenance attached to a recall hit (#262 slice 7).
 ///

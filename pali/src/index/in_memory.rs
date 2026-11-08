@@ -6,10 +6,6 @@ use crate::{
     types::{Scope, ScopeFilter},
 };
 
-// ---------------------------------------------------------------------------
-// InMemoryState
-// ---------------------------------------------------------------------------
-
 struct InMemoryState {
     /// All entries keyed by qualified name, storing (scope, vector).
     entries: HashMap<String, (Scope, Vec<f32>)>,
@@ -20,10 +16,6 @@ struct InMemoryState {
     /// Stored commit SHA.
     commit_sha: Option<String>,
 }
-
-// ---------------------------------------------------------------------------
-// InMemoryStore
-// ---------------------------------------------------------------------------
 
 /// HashMap-based `VectorStore` implementation for tests.
 ///
@@ -192,7 +184,6 @@ impl VectorStore for InMemoryStore {
     }
 
     fn save(&self, _dir: &Path) -> Result<(), MemoryError> {
-        // No-op: InMemoryStore is an in-memory test double.
         Ok(())
     }
 
@@ -221,10 +212,6 @@ impl VectorStore for InMemoryStore {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -247,7 +234,6 @@ mod tests {
         vec![0.0, 0.0, 1.0, 0.0]
     }
 
-    // TC-02a: add + find_by_name
     #[test]
     fn tc02a_add_and_find_by_name() {
         let store: &dyn VectorStore = &make_store();
@@ -260,7 +246,6 @@ mod tests {
         );
     }
 
-    // TC-02b: remove clears entry
     #[test]
     fn tc02b_remove_clears_entry() {
         let store: &dyn VectorStore = &make_store();
@@ -276,7 +261,6 @@ mod tests {
         );
     }
 
-    // TC-02c: search with RootOnly filter
     #[test]
     fn tc02c_search_root_only() {
         let store: &dyn VectorStore = &make_store();
@@ -300,7 +284,6 @@ mod tests {
         );
     }
 
-    // TC-02d: search with Subtree filter
     #[test]
     fn tc02d_search_subtree() {
         let store: &dyn VectorStore = &make_store();
@@ -333,7 +316,6 @@ mod tests {
         );
     }
 
-    // TC-02e: search with All filter
     #[test]
     fn tc02e_search_all() {
         let store: &dyn VectorStore = &make_store();
@@ -357,9 +339,8 @@ mod tests {
         );
     }
 
-    // TC-05c: InMemoryStore returns same MemoryError variants
-    // InMemoryStore's add/remove/search don't return errors in normal operation,
-    // but verify the Ok path works and returns appropriate types.
+    // add/remove/search don't return errors in normal operation; this
+    // verifies the Ok path works and returns appropriate types.
     #[test]
     fn tc05c_in_memory_store_returns_ok_variants() {
         let store: &dyn VectorStore = &make_store();
@@ -375,7 +356,6 @@ mod tests {
         assert!(result.is_ok(), "TC-05c: remove should return Ok");
     }
 
-    // TC-06b: InMemoryStore::is_ready() returns configured value
     #[test]
     fn tc06b_in_memory_store_is_ready_default_true() {
         let store = InMemoryStore::new(4);
@@ -424,7 +404,6 @@ mod tests {
     #[test]
     fn in_memory_store_search_results_sorted_by_distance() {
         let store: &dyn VectorStore = &make_store();
-        // vec_a is [1,0,0,0]; searching for [1,0,0,0] should rank it first.
         store
             .add(&Scope::Root, &vec_a(), "global/closest".to_string())
             .expect("add a");
@@ -436,7 +415,6 @@ mod tests {
             .search(&ScopeFilter::All, &vec_a(), 10)
             .expect("search");
         assert_eq!(results.len(), 2);
-        // Distance to vec_a from query vec_a should be 0 (cosine distance = 1 - 1 = 0).
         assert!(
             results[0].2 <= results[1].2,
             "results should be sorted by ascending distance"
@@ -447,7 +425,7 @@ mod tests {
     #[test]
     fn tc05c_in_memory_store_dimension_mismatch_returns_invalid_input() {
         let store = InMemoryStore::new(4);
-        let wrong_dims = vec![1.0_f32, 0.0]; // 2 dims, store expects 4
+        let wrong_dims = vec![1.0_f32, 0.0];
         let err = store
             .add(&Scope::Root, &wrong_dims, "global/bad-dims".to_string())
             .unwrap_err();
@@ -474,7 +452,6 @@ mod tests {
         assert_eq!(store.find_by_name(&name), Some(key2));
     }
 
-    // Subtree filter matching tests
     fn sp(s: &str) -> ScopePath {
         ScopePath::new(s).unwrap()
     }

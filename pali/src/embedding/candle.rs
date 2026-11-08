@@ -15,10 +15,6 @@ use super::EmbeddingBackend;
 use crate::error::MemoryError;
 use crate::health::SubsystemReporter;
 
-// -----------------------------------------------------------------------------
-// Model constants
-// -----------------------------------------------------------------------------
-
 /// HuggingFace model ID. Only BGE-small-en-v1.5 is supported currently.
 pub const MODEL_ID: &str = "BAAI/bge-small-en-v1.5";
 
@@ -53,10 +49,6 @@ fn model_manifest() -> anyhow::Result<ModelManifest> {
     serde_json::from_str(MODEL_MANIFEST)
         .map_err(|e| anyhow::anyhow!("embedded model manifest is invalid: {e}"))
 }
-
-// ---------------------------------------------------------------------------
-// Worker thread
-// ---------------------------------------------------------------------------
 
 struct EmbedRequest {
     texts: Vec<String>,
@@ -352,7 +344,6 @@ impl EmbeddingBackend for CandleEmbeddingEngine {
             },
         };
 
-        // Report operational state passively, without probing.
         match &result {
             Ok(_) => self.reporter.report_ok(),
             Err(_) => self.reporter.report_err("embed failed"),
@@ -365,10 +356,6 @@ impl EmbeddingBackend for CandleEmbeddingEngine {
         self.dim
     }
 }
-
-// ---------------------------------------------------------------------------
-// Model loading
-// ---------------------------------------------------------------------------
 
 /// Resolve the directory containing the embedding model files.
 ///
@@ -581,7 +568,6 @@ fn embed_chunk(inner: &CandleInner, texts: &[String]) -> Result<Vec<Vec<f32>>, M
         .forward(&input_ids, &token_type_ids, Some(&attention_mask))
         .map_err(|e| MemoryError::Embedding(format!("BERT forward pass failed: {e}")))?;
 
-    // CLS pooling + L2 normalise each vector in the batch.
     let mut results = Vec::with_capacity(batch_size);
     for i in 0..batch_size {
         let cls = embeddings
@@ -608,10 +594,6 @@ fn embed_chunk(inner: &CandleInner, texts: &[String]) -> Result<Vec<Vec<f32>>, M
 
     Ok(results)
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -709,25 +691,22 @@ mod tests {
                 // Reply arrives after the caller's receiver was dropped — send
                 // fails silently, which is the self-healing path.
                 let _ = reply_tx.send(Ok(vec![vec![0.0; 4]]));
-                // Signal the test that we've finished processing the stale request.
                 barrier2.wait();
             } else {
                 ok_handler(texts, reply_tx);
             }
         });
 
-        // First call times out.
         let err = engine
             .embed(&["slow".to_string()])
             .await
             .expect_err("slow embed should time out");
         assert!(matches!(err, MemoryError::EmbeddingInferenceTimeout { .. }));
 
-        // Unblock the worker and wait for it to finish the stale request.
+        // Release the blocked worker and wait for it to finish the stale request.
         barrier.wait();
         barrier.wait();
 
-        // Second call should succeed — the worker recovered.
         let result = engine.embed(&["fast".to_string()]).await;
         assert!(
             result.is_ok(),
@@ -780,7 +759,6 @@ mod tests {
     #[tokio::test]
     async fn disconnected_worker_returns_error() {
         let (tx, rx) = mpsc::sync_channel::<EmbedRequest>(1);
-        // Drop the receiver immediately — worker is "dead".
         drop(rx);
         let engine = CandleEmbeddingEngine::with_worker(tx, 4, Duration::from_secs(5));
 
@@ -796,12 +774,10 @@ mod tests {
 
     #[tokio::test]
     async fn busy_worker_returns_error() {
-        // Channel capacity 0 is not allowed by SyncSender; use capacity 1 but
-        // send two requests without the worker consuming either.
-        // Easier: use a zero-sleep worker that we pre-fill the channel for.
+        // Channel capacity 0 is not allowed by SyncSender; use capacity 1
+        // and pre-fill the single slot directly, bypassing embed(), so the
+        // worker never consumes it.
         let (tx, rx) = mpsc::sync_channel::<EmbedRequest>(1);
-
-        // Pre-fill the single channel slot by sending directly, bypassing embed().
         let (filler_tx, _filler_rx) = oneshot::channel::<Result<Vec<Vec<f32>>, MemoryError>>();
         tx.send(EmbedRequest {
             texts: vec!["fill".to_string()],
@@ -811,7 +787,6 @@ mod tests {
         })
         .unwrap();
 
-        // Now embed() hits try_send on a full channel.
         let engine = CandleEmbeddingEngine::with_worker(tx, 4, Duration::from_secs(5));
         let err = engine
             .embed(&["overflow".to_string()])
@@ -819,6 +794,6 @@ mod tests {
             .expect_err("full channel should error");
         assert!(matches!(err, MemoryError::EmbeddingWorkerBusy));
 
-        drop(rx); // clean up
+        drop(rx);
     }
 }

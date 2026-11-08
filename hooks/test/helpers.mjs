@@ -78,8 +78,6 @@ export function writeTranscript(dir, events, name = "events.jsonl") {
   return path;
 }
 
-// --- Copilot transcript event builders -------------------------------------
-
 const TS = "2026-10-28T10:00:00.000Z";
 
 export function user(content, timestamp = TS) {

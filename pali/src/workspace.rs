@@ -70,10 +70,6 @@ const SKIP_DIRS: &[&str] = &[
     "venv",
 ];
 
-// ---------------------------------------------------------------------------
-// Options
-// ---------------------------------------------------------------------------
-
 /// Inputs shared by scan, index, and dataset.
 ///
 /// Construct with [`ScanOptions::new`], which resolves and validates the
@@ -144,10 +140,6 @@ impl ScanOptions {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Public summaries
-// ---------------------------------------------------------------------------
-
 /// Result of a scan. The full file inventory and findings are written to
 /// [`ScanSummary::report`]; this summary is what the CLI prints.
 #[derive(Debug, Serialize)]
@@ -195,10 +187,6 @@ pub struct DatasetSummary {
     /// Path of the JSONL dataset.
     pub output: String,
 }
-
-// ---------------------------------------------------------------------------
-// Scan
-// ---------------------------------------------------------------------------
 
 /// A text file included in a scan.
 #[derive(Debug, Serialize)]
@@ -554,10 +542,6 @@ pub(crate) fn language(path: &str) -> &'static str {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Chunking
-// ---------------------------------------------------------------------------
-
 /// One retrieval chunk, serialised into the dataset and the index manifest.
 #[derive(Debug, Serialize)]
 struct ChunkRecord {
@@ -653,10 +637,6 @@ fn distinct_files(chunks: &[ChunkRecord]) -> usize {
     paths.len()
 }
 
-// ---------------------------------------------------------------------------
-// Index
-// ---------------------------------------------------------------------------
-
 /// Embed every chunk of a workspace and persist a usearch index under
 /// `<artifacts>/index`, alongside `chunks.jsonl` describing each vector.
 ///
@@ -708,10 +688,6 @@ pub async fn index(
     })
 }
 
-// ---------------------------------------------------------------------------
-// Dataset
-// ---------------------------------------------------------------------------
-
 /// Write workspace chunks as JSONL records.
 ///
 /// `output` defaults to `<artifacts>/dataset.jsonl`; a relative path resolves
@@ -755,10 +731,6 @@ fn write_jsonl<T: Serialize>(path: &Path, records: &[T]) -> Result<(), MemoryErr
     crate::fs_util::atomic_write(path, body.as_bytes())?;
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {

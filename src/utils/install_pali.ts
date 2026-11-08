@@ -44,11 +44,6 @@ export const MODEL_FILES = [
   modelManifest.files.weights,
 ];
 
-// Log lines flow through the shared logger (src/utils/logger.ts): the
-// extension host routes them into the "Pali Memory" output channel, and
-// standalone runs (tests, scripts) keep the console. The level filter is the
-// same `pali.logLevel` setting that drives the server and the hooks.
-
 /** Map host platform/arch to a prebuilt release target, or null if unsupported. */
 export function getReleaseTarget(platform: string, arch: string): string | null {
   if (platform === "darwin" && arch === "arm64") return "aarch64-apple-darwin";
@@ -360,7 +355,6 @@ export async function resolvePaliBinary(
     return { path: cached, source: "cache" };
   }
 
-  // 4. Not found
   return { path: null, source: "missing" };
 }
 
@@ -695,7 +689,6 @@ export async function prepare(ui: UI, autoCheck: boolean): Promise<PrepareResult
     ui.paliPath = resolved.path;
   }
 
-  // Check for updates if enabled
   if (autoCheck) {
     await checkUpdates(false, ui);
   }
@@ -741,7 +734,6 @@ export async function installLatest(ui: UI): Promise<void> {
     // If undefined (dismissed), fall through and reinstall
   }
 
-  // Ensure the storage directory exists before writing the binary.
   await fs.mkdir(ui.storagePath, { recursive: true });
 
   await ui.progress(`Installing pali (${target})...`, null, async (reportProgress) => {

@@ -1202,15 +1202,6 @@ mod tests {
         assert!(index.search(&ScopeFilter::All, "query", 10).is_err());
     }
 
-    // -----------------------------------------------------------------------
-    // Failure/repair contract (#310)
-    //
-    // Written first as a characterization instrument: run against the
-    // pre-contract code, the failing tests below are the evidence of where
-    // failed mutations strand state. They assert the contract; the
-    // implementation must make them pass and keep them green.
-    // -----------------------------------------------------------------------
-
     fn ldoc(scope: &Scope, name: &str, content: &str) -> LexicalDoc {
         LexicalDoc {
             qualified_name: key(scope, name),
@@ -1268,13 +1259,10 @@ mod tests {
         );
         assert!(index.is_degraded(), "failed batch must flag the index");
 
-        // Mirrors keep flowing while degraded…
         index
             .apply(vec![LexicalOp::Upsert(ldoc(&scope, "later", "laterword"))])
             .expect("later batch");
 
-        // …and after repair from git truth the failed batch's prefix must
-        // not have ghost-committed.
         index
             .rebuild(vec![ldoc(&scope, "later", "laterword")])
             .expect("repair rebuild");

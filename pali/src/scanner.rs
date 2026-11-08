@@ -71,10 +71,6 @@ const BLOCKED_DIRS: &[&str] = &[
     "vendor",
 ];
 
-// ---------------------------------------------------------------------------
-// Options
-// ---------------------------------------------------------------------------
-
 /// Inputs for a repository scan.
 ///
 /// Construct with [`RepositoryScanOptions::new`], then chain the optional
@@ -154,10 +150,6 @@ impl RepositoryScanOptions {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Public summary
-// ---------------------------------------------------------------------------
-
 /// Result of a repository scan. The full report is at
 /// [`RepositoryScanSummary::security_report`]; the manifest is at
 /// [`RepositoryScanSummary::manifest`].
@@ -183,10 +175,6 @@ pub struct RepositoryScanSummary {
     #[serde(skip)]
     pub insights_markdown: String,
 }
-
-// ---------------------------------------------------------------------------
-// Artifact shapes
-// ---------------------------------------------------------------------------
 
 /// A file excluded from the manifest, by path or by content finding. The
 /// matched value is never stored.
@@ -296,10 +284,6 @@ struct RepositoryContext<'a> {
     commit: &'a str,
     messages: &'a [String],
 }
-
-// ---------------------------------------------------------------------------
-// Scan
-// ---------------------------------------------------------------------------
 
 /// Scan the workspace's own git repository and write
 /// `<artifacts>/security-scan.json`, `<artifacts>/scan-manifest.jsonl`, and
@@ -699,10 +683,6 @@ fn blame_lines(repo: &git2::Repository, relative: &str) -> Vec<BlameLine> {
     lines
 }
 
-// ---------------------------------------------------------------------------
-// Insights
-// ---------------------------------------------------------------------------
-
 /// Derive deterministic insights from the accepted files.
 fn derive_insights(repo: &str, commit: &str, messages: &[String], files: &[FileFacts]) -> Insights {
     let mut languages: BTreeMap<&str, (usize, u64)> = BTreeMap::new();
@@ -916,10 +896,6 @@ fn is_project_file(path: &str) -> bool {
     ) || path.starts_with(".github/workflows/")
 }
 
-// ---------------------------------------------------------------------------
-// Saving insights
-// ---------------------------------------------------------------------------
-
 /// Save an insight digest as one memory in a pali memory repository.
 ///
 /// The memory is named [`INSIGHTS_MEMORY_NAME`] inside `scope`, so saving the
@@ -968,10 +944,6 @@ pub fn default_scope(root: &Path) -> String {
         trimmed.to_string()
     }
 }
-
-// ---------------------------------------------------------------------------
-// Credential detection
-// ---------------------------------------------------------------------------
 
 /// The path rule, applied per component.
 fn path_pattern() -> &'static Regex {
@@ -1043,10 +1015,6 @@ fn findings_in(content: &str) -> Vec<(&'static str, usize)> {
     found
 }
 
-// ---------------------------------------------------------------------------
-// Artifacts
-// ---------------------------------------------------------------------------
-
 fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<(), MemoryError> {
     let mut body = serde_json::to_vec_pretty(value)
         .map_err(|e| MemoryError::Internal(format!("serialise scan artifact: {e}")))?;
@@ -1067,10 +1035,6 @@ fn write_jsonl<T: Serialize>(path: &Path, records: &[T]) -> Result<(), MemoryErr
     fs_util::atomic_write(path, body.as_bytes())?;
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {

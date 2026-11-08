@@ -426,7 +426,6 @@ function activate(context: vscode.ExtensionContext): void {
       : 'this VS Code build has no MCP server definition provider API; update VS Code 1.101 or newer',
   );
 
-  // Install the Copilot hooks
   void installHooks(context, true);
 
   // Install the agent-facing skill once per user, like the hooks. A missing
@@ -481,8 +480,6 @@ function activate(context: vscode.ExtensionContext): void {
     .catch((error) => {
       output.appendLine(`pali: binary resolution failed: ${error.message}`);
     });
-
-  // The install.ts handles auto-check and registration of pali.install/pali.update/pali.restart
 }
 
 function deactivate(): void {}

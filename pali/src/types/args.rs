@@ -19,10 +19,6 @@ where
     Ok(Option::<Vec<String>>::deserialize(deserializer)?.unwrap_or_default())
 }
 
-// ---------------------------------------------------------------------------
-// Tool argument structs
-// ---------------------------------------------------------------------------
-
 /// Arguments for the `remember` tool — store a new memory.
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct RememberArgs {
@@ -317,13 +313,9 @@ pub struct SyncArgs {
     pub pull_first: Option<bool>,
 }
 
-// ---------------------------------------------------------------------------
-// PullResult
 /// Arguments for the `recall_stats` tool — no parameters required.
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct RecallStatsArgs {}
-
-// ---------------------------------------------------------------------------
 
 /// The outcome of a `pull()` operation.
 #[derive(Debug)]
@@ -350,10 +342,6 @@ pub enum PullResult {
         new_head: [u8; 20],
     },
 }
-
-// ---------------------------------------------------------------------------
-// ChangedMemories
-// ---------------------------------------------------------------------------
 
 /// Memories that changed between two git commits.
 ///
@@ -388,10 +376,6 @@ impl ChangedMemories {
         self.upserted.is_empty() && self.removed.is_empty()
     }
 }
-
-// ---------------------------------------------------------------------------
-// ResolvedChanges (crate-internal)
-// ---------------------------------------------------------------------------
 
 /// Changed memories resolved to structured references, for the index mirror.
 ///
@@ -431,10 +415,6 @@ impl ResolvedChanges {
     }
 }
 
-// ---------------------------------------------------------------------------
-// ReindexStats
-// ---------------------------------------------------------------------------
-
 /// Statistics from an incremental reindex operation.
 #[derive(Debug, Default)]
 pub struct ReindexStats {
@@ -447,10 +427,6 @@ pub struct ReindexStats {
     /// Number of memories that failed to index.
     pub errors: usize,
 }
-
-// ---------------------------------------------------------------------------
-// AppState
-// ---------------------------------------------------------------------------
 
 /// Shared application state threaded through the MCP tool handlers.
 ///
@@ -560,10 +536,6 @@ impl AppState {
 mod tests {
     use super::*;
 
-    // -----------------------------------------------------------------------
-    // Wire-contract tests — assert the JSON schema shape that MCP clients see.
-    // -----------------------------------------------------------------------
-
     #[test]
     fn batch_mark_applied_schema_has_verdicts_array() {
         let schema = schemars::schema_for!(BatchMarkAppliedArgs);
@@ -618,10 +590,6 @@ mod tests {
             "'application' must not be required"
         );
     }
-
-    // -----------------------------------------------------------------------
-    // Deserialization round-trip tests
-    // -----------------------------------------------------------------------
 
     #[test]
     fn list_tool_args_deserializes_minimal() {

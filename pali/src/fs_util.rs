@@ -248,7 +248,6 @@ pub(crate) fn atomic_write(path: &Path, data: &[u8]) -> std::io::Result<()> {
         )
     })?;
 
-    // Build a deterministic temp name: .<filename>.tmp
     let file_name = path
         .file_name()
         .ok_or_else(|| {
@@ -259,16 +258,13 @@ pub(crate) fn atomic_write(path: &Path, data: &[u8]) -> std::io::Result<()> {
 
     let mut guard = TempGuard::new(&tmp_path);
 
-    // Open + write + sync.
     write_tmp(&tmp_path, data)?;
 
-    // Atomic rename into the final location.
     std::fs::rename(&tmp_path, path)?;
     guard.defuse();
 
-    // Fsync the parent directory so the rename is durable even on hard crash.
-    // Best-effort: the rename already committed, so a dir-fsync failure should
-    // not cause callers to treat the write as failed.
+    // Best-effort: the rename already committed, so a dir-fsync failure
+    // should not cause callers to treat the write as failed.
     if let Err(e) = fsync_dir(parent) {
         tracing::warn!("fsync of parent directory failed (data is written): {e}");
     }

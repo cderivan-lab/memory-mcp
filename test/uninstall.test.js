@@ -1,8 +1,5 @@
 "use strict";
 
-// Tests for src/uninstall.ts: the hook/skill/instructions removal logic and
-// the CLI entry point run by `vscode:uninstall`.
-
 const assert = require("node:assert/strict");
 const { execFile } = require("node:child_process");
 const fs = require("node:fs");

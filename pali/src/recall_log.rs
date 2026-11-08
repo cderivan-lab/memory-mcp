@@ -415,7 +415,6 @@ mod tests {
         ];
         log.log_results(&recall_id, "sess-1", &results).unwrap();
 
-        // Mark only "alpha" as applied.
         let rows_affected = log
             .mark_applied(
                 &recall_id,
@@ -428,7 +427,6 @@ mod tests {
             .unwrap();
         assert_eq!(rows_affected, 1);
 
-        // Verify via direct DB access.
         let conn = log.conn().unwrap();
         let (was_applied, note, confidence): (Option<String>, Option<String>, Option<String>) =
             conn.query_row(
@@ -442,7 +440,6 @@ mod tests {
         assert_eq!(note.as_deref(), Some("used for greeting"));
         assert_eq!(confidence.as_deref(), Some("high"));
 
-        // "beta" should be untouched.
         let beta_applied: Option<String> = conn
             .query_row(
                 "SELECT was_applied FROM recall_events WHERE recall_id = ?1 AND memory_name = 'beta'",
@@ -468,7 +465,6 @@ mod tests {
         }];
         log.log_results(&recall_id, "sess-read", &results).unwrap();
 
-        // Initially was_read = 0.
         {
             let conn = log.conn().unwrap();
             let was_read: i64 = conn
@@ -481,11 +477,9 @@ mod tests {
             assert_eq!(was_read, 0);
         }
 
-        // Mark as read.
         let rows = log.mark_read("sess-read", "gamma").unwrap();
         assert_eq!(rows, 1);
 
-        // Verify was_read = 1.
         let conn = log.conn().unwrap();
         let was_read: i64 = conn
             .query_row(
@@ -510,7 +504,6 @@ mod tests {
 
         let recall_id = RecallLog::generate_recall_id();
         // distance 0.1 → bucket index 2  (range [0.10, 0.15))
-        // distance 0.1 → bucket index 2
         // distance 0.35 → bucket index 7  (range [0.35, 0.40))
         let results = vec![
             RecallResult {
@@ -534,7 +527,6 @@ mod tests {
         ];
         log.log_results(&recall_id, "sess-stats", &results).unwrap();
 
-        // Mark r1 applied, r2 not-applied, r3 unknown (leave as-is).
         log.mark_applied(&recall_id, "r1", "sess-stats", "applied", None, "medium")
             .unwrap();
         log.mark_applied(&recall_id, "r2", "sess-stats", "not_applied", None, "low")
@@ -601,7 +593,6 @@ mod tests {
         assert_eq!(bucket.not_applied, 0);
         assert_eq!(bucket.unknown, 1);
 
-        // Verify DB value directly.
         let conn = log.conn().unwrap();
         let was_applied: Option<String> = conn
             .query_row(

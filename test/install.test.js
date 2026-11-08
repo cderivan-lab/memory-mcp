@@ -1,8 +1,5 @@
 "use strict";
 
-// Tests for src/utils/install.ts UI class methods: shouldReuse, promptUpdate, progress, resolvePaliPath
-// These test the UI wrapper methods around the VSCode API.
-
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const path = require("node:path");
@@ -197,7 +194,6 @@ test("shouldReuse returns undefined when user dismisses prompt", async () => {
 });
 
 test("promptUpdate calls installLatest when user chooses upgrade", async () => {
-  // Mock fetch for GitHub API call
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url, options) => {
     // Match the releases/latest endpoint
@@ -226,8 +222,6 @@ test("promptUpdate calls installLatest when user chooses upgrade", async () => {
   const ui = await UI.create([], os.tmpdir(), "/ext");
   await ui.promptUpdate("1.0.0", "2.0.0");
 
-  // installLatest downloads the release asset and extracts the pali
-  // executable into the storage directory with the current platform's name.
   const binaryName = process.platform === "win32" ? "pali.exe" : "pali";
   const installedPath = path.join(ui.storagePath, binaryName);
   assert.ok(
@@ -237,7 +231,6 @@ test("promptUpdate calls installLatest when user chooses upgrade", async () => {
   const contents = fs.readFileSync(installedPath, "utf8");
   assert.match(contents, /^#!\/bin\/sh/, "installed binary should match the release asset payload");
 
-  // Restore original fetch
   globalThis.fetch = originalFetch;
 });
 
@@ -251,9 +244,7 @@ test("promptUpdate sets checkUpdates to false when user chooses dont ask again",
   const ui = await UI.create([], os.tmpdir(), "/ext");
   await ui.promptUpdate("1.0.0", "2.0.0");
 
-  // Should have updated checkUpdates to false
   const checkUpdatesUpdate = vscode.workspace.getConfiguration().update;
-  // The update should have been called
   assert.ok(vscode.workspace.configUpdates.length > 0, "config update should have been called");
   const checkUpdate = vscode.workspace.configUpdates.find(u => u.key === "checkUpdates");
   assert.ok(checkUpdate, "checkUpdates should be updated");
@@ -280,9 +271,6 @@ test("progress method handles cancellation via AbortController", async () => {
     return "done";
   });
 
-  // When cancelled, progress returns undefined
-  // Actually looking at the code, it still returns the body result
-  // Let's verify the cancellation was handled
   assert.equal(cancelled, true, "AbortController should have been aborted");
 });
 

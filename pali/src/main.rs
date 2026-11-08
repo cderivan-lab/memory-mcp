@@ -16,10 +16,6 @@ use pali::repo::MemoryRepo;
 use pali::server::MemoryServer;
 use pali::types::{AppState, validate_branch_name};
 
-// ---------------------------------------------------------------------------
-// CLI
-// ---------------------------------------------------------------------------
-
 #[derive(Parser)]
 #[command(
     name = "pali",
@@ -193,10 +189,6 @@ struct EmbedArgs {
     embed_queue_size: usize,
 }
 
-// ---------------------------------------------------------------------------
-// Tracing initialisation
-// ---------------------------------------------------------------------------
-
 /// Initialise the global tracing subscriber: Registry + EnvFilter
 /// (`pali=info` default) + fmt writing to stderr.
 fn init_tracing() {
@@ -208,10 +200,6 @@ fn init_tracing() {
         .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
         .init();
 }
-
-// ---------------------------------------------------------------------------
-// Main
-// ---------------------------------------------------------------------------
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -359,10 +347,6 @@ fn legacy_suffix_replacement(suffix: &[u8]) -> Option<Option<String>> {
     Some(Some(format!("MEMORY_MCP_{canonical} -> PALI_{canonical}")))
 }
 
-// ---------------------------------------------------------------------------
-// Server startup
-// ---------------------------------------------------------------------------
-
 /// Start and run the MCP server with the provided arguments.
 async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
     // Validate branch name early to prevent ref injection.
@@ -410,7 +394,6 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
 
     let dimensions = embedding.dimensions();
 
-    // Attempt to load the scoped index; create fresh if missing or corrupt.
     let index_dir = repo_path.join(".memory-mcp-index");
 
     // Remove legacy single-index files if they still exist from an old install.
@@ -430,7 +413,6 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
 
     let repo = Arc::new(repo);
 
-    // Load per-scope remote config and build the repo router.
     let router = {
         let config_path = match &args.config {
             Some(p) if p.is_empty() => None,
@@ -725,7 +707,6 @@ fn run_recall_stats(args: RecallStatsArgs) -> anyhow::Result<()> {
         .recall_stats()
         .context("failed to compute recall stats")?;
 
-    // Print only non-empty buckets.
     let any = buckets.iter().any(|b| b.total > 0);
     if !any {
         println!("No recall events recorded yet.");
@@ -784,10 +765,6 @@ async fn run_warmup(args: WarmupArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 /// Parse a `usize` that must be at least 1. Used as a clap `value_parser`.
 fn parse_nonzero_usize(s: &str) -> Result<usize, String> {
     let n: usize = s
@@ -813,10 +790,6 @@ fn parse_nonzero_u64(s: &str) -> Result<u64, String> {
 fn expand_path(path: &str) -> anyhow::Result<PathBuf> {
     pali::fs_util::expand_tilde(path).map_err(|e| anyhow::anyhow!("{e}"))
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -918,9 +891,6 @@ mod tests {
 
     #[test]
     fn test_bare_serve_reparsed_uses_env_var() {
-        // Simulate what happens in the None arm: parse_from builds ServeArgs
-        // from env vars. This test just checks that parse_from succeeds and
-        // produces a Serve command.
         let cli = Cli::parse_from(["pali", "serve"]);
         assert!(matches!(cli.command, Some(Command::Serve(_))));
     }

@@ -176,8 +176,6 @@ test("token is passed only for HTTPS remotes", () => {
   assert.equal(local.env.PALI_GIT_TOKEN, undefined);
 });
 
-// --- Workspace bootstrap ---------------------------------------------------
-//
 // `Pali: Scan Workspace` and `Pali: Index Workspace` shell out to the CLI's
 // bootstrap subcommands. The invocation is pure so the flags and the model
 // handoff can be pinned without spawning the binary.
@@ -301,13 +299,10 @@ test("bootstrap summaries report the artifacts the run produced", () => {
 });
 
 test("getReleaseTarget maps supported platforms", () => {
-  // macOS: separate Intel and ARM architectures
   assert.equal(getReleaseTarget("darwin", "arm64"), "aarch64-apple-darwin");
   assert.equal(getReleaseTarget("darwin", "x64"), "x86_64-apple-darwin");
-  // Linux: both x64 and ARM64
   assert.equal(getReleaseTarget("linux", "x64"), "x86_64-unknown-linux-gnu");
   assert.equal(getReleaseTarget("linux", "arm64"), "aarch64-unknown-linux-gnu");
-  // Windows: both x64 and ARM64
   assert.equal(getReleaseTarget("win32", "x64"), "x86_64-pc-windows-msvc");
   assert.equal(getReleaseTarget("win32", "arm64"), "aarch64-pc-windows-msvc");
   // Unsupported: x86 (32-bit) is not built
@@ -574,8 +569,6 @@ test("MCP definition omits empty optional settings", () => {
   assert.deepEqual(definition.env, { NO_COLOR: "1", PALI_BRANCH: "trunk" });
 });
 
-// --- Logging ---------------------------------------------------------------
-//
 // One `pali.logLevel` setting drives the extension logger, the MCP server
 // (RUST_LOG), and the hooks (PALI_HOOK_LOG_LEVEL). These tests pin the level
 // filtering and the filter mapping.
@@ -624,8 +617,6 @@ test("the logger filters below the configured level", () => {
   }
 });
 
-// --- Release downloads -----------------------------------------------------
-//
 // The binary and the model both come from the project's GitHub Enterprise
 // releases. These tests stub `fetch` with in-memory ZIP archives so the full
 // download path (auth header, progress, extraction, cleanup) runs without

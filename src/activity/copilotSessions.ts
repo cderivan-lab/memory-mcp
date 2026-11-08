@@ -1,6 +1,3 @@
-// Copilot session management utilities for the Pali Memory extension.
-// These functions handle the recording of Copilot CLI sessions to the memory store.
-
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -90,10 +87,6 @@ export interface PromptTransform {
   modifiedTransformedPrompt?: string;
   memoriesInjected: number;
 }
-
-// ---------------------------------------------------------------------------
-// Transcript parsing
-// ---------------------------------------------------------------------------
 
 /** One turn in a Copilot session transcript. */
 export interface TranscriptTurn {
@@ -246,10 +239,6 @@ export function parseTranscript(transcriptPath: string): ParsedTranscript {
   return { turns, tools };
 }
 
-// ---------------------------------------------------------------------------
-// Session digest building
-// ---------------------------------------------------------------------------
-
 /** Check if transcript has content worth capturing. */
 export function hasContent(session: ParsedTranscript): boolean {
   return Boolean(session?.turns?.length || session?.tools?.length);
@@ -298,7 +287,6 @@ export function buildDigest(
 
   const parts: string[] = [];
 
-  // Requests (user prompts)
   const requests = session.turns
     .filter((t) => t.role === 'user')
     .slice(-TRANSCRIPT_LIMITS.requests)
@@ -309,7 +297,6 @@ export function buildDigest(
     requests.forEach((r, i) => parts.push(`${i + 1}. ${r}\n`));
   }
 
-  // Files modified
   const files: string[] = [];
   const seen = new Set<string>();
   for (const tool of session.tools) {
@@ -331,7 +318,6 @@ export function buildDigest(
     files.forEach((f) => parts.push(`- ${f}\n`));
   }
 
-  // Recent commands
   const commands: string[] = [];
   for (let i = session.tools.length - 1; i >= 0 && commands.length < TRANSCRIPT_LIMITS.commands; i--) {
     const tool = session.tools[i];
@@ -347,7 +333,6 @@ export function buildDigest(
     commands.forEach((c) => parts.push(`\`${c}\`\n`));
   }
 
-  // Failures
   const failures: string[] = [];
   for (let i = session.tools.length - 1; i >= 0 && failures.length < TRANSCRIPT_LIMITS.failures; i--) {
     const tool = session.tools[i];
@@ -367,7 +352,6 @@ export function buildDigest(
     failures.forEach((f) => parts.push(`${f}\n`));
   }
 
-  // Tool activity summary
   const counts = new Map<string, number>();
   for (const tool of session.tools) {
     counts.set(tool.name, (counts.get(tool.name) ?? 0) + 1);
@@ -384,10 +368,6 @@ export function buildDigest(
 
   return parts.join('');
 }
-
-// ---------------------------------------------------------------------------
-// Memory block formatting
-// ---------------------------------------------------------------------------
 
 /** Format memory block for injection into Copilot context. */
 export function formatMemoryBlock(params: MemoryBlock): string {
@@ -413,10 +393,6 @@ export function formatMemoryBlock(params: MemoryBlock): string {
 
   return intro + blocks.join('');
 }
-
-// ---------------------------------------------------------------------------
-// Scope sanitization
-// ---------------------------------------------------------------------------
 
 function sanitizeComponent(component: string): string {
   return component
@@ -453,15 +429,7 @@ export function projectScope(cwd: string, config?: ExtensionSettings): string {
   return sanitizeScope(name);
 }
 
-// ---------------------------------------------------------------------------
-// Utility: execSync wrapper
-// ---------------------------------------------------------------------------
-
 import { execSync } from 'node:child_process';
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
 
 /** Tags for classifying Copilot session memories (exported for test use). */
 export const SESSION_TAGS = ['session', 'auto-capture', 'harness:copilot-cli'];

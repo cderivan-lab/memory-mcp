@@ -7,7 +7,6 @@ import * as vscode from 'vscode';
 
 import * as config from './config';
 
-// Returns the pali path to be used, or null if pali is not installed.
 export async function activate(disposables: vscode.Disposable[],
   globalStoragePath: string,
   extensionPath: string,
@@ -94,13 +93,10 @@ export class UI {
     const response =
       await vscode.window.showInformationMessage(message, use, reinstall);
     if (response === use) {
-      // Find pali within the existing directory.
       return true;
     } else if (response === reinstall) {
-      // Remove the existing installation.
       return false;
     } else {
-      // User dismissed prompt, bail out.
       return undefined;
     }
   }
