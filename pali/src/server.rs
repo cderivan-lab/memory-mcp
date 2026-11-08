@@ -546,10 +546,6 @@ impl Drop for EditStageTiming {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Cancellation-shielded mutation units
-// ---------------------------------------------------------------------------
-
 /// Run a repository-write + index-mirror unit on a detached task so request
 /// cancellation can never separate a completed git commit from its index
 /// mirror dispatch (#310, ADR-0039).
@@ -597,10 +593,6 @@ where
         Err(e) => Err(MemoryError::Join(format!("mutation unit task failed: {e}"))),
     }
 }
-
-// ---------------------------------------------------------------------------
-// Incremental reindex helper
-// ---------------------------------------------------------------------------
 
 /// Whether splitting a failed batch into individual requests can isolate the
 /// failure.
@@ -662,7 +654,6 @@ async fn incremental_reindex(
         lexical.mark_rebuild_required("pulled changes contained unresolvable memory files");
     }
 
-    // ---- 1. Removals --------------------------------------------------------
     for mref in &changes.removed {
         let canonical = mref.qualified_path();
         lexical_ops.push(LexicalOp::Remove(canonical.clone()));
@@ -682,8 +673,6 @@ async fn incremental_reindex(
         // If not in index, remove is a no-op — not an error.
     }
 
-    // ---- 2. Read upserted memories from disk ---------------------------------
-    // (MemoryRef, content)
     let mut to_embed: Vec<(MemoryRef, String)> = Vec::new();
     for mref in &changes.upserted {
         let qualified = mref.qualified_path();
@@ -711,7 +700,6 @@ async fn incremental_reindex(
         to_embed.push((mref.clone(), memory.content));
     }
 
-    // ---- 2b. Mirror all changes into the lexical index ----------------------
     // One batch: a single commit and reader reload for the whole changed
     // set, on the blocking pool. Best-effort — a failure flags the index
     // degraded (semantic-only recall) and repair rebuilds from git truth.
@@ -732,7 +720,6 @@ async fn incremental_reindex(
         return stats;
     }
 
-    // ---- 3. Batch embed all content -----------------------------------------
     let contents: Vec<String> = to_embed.iter().map(|(_, c)| c.clone()).collect();
     let vectors = match embedding.embed(&contents).await {
         Ok(v) => v,
@@ -794,7 +781,6 @@ async fn incremental_reindex(
         }
     };
 
-    // ---- 4. Update index entries --------------------------------------------
     for ((mref, _), vector) in to_embed.iter().zip(vectors.iter()) {
         let qualified_name = mref.qualified_path();
         let is_update = index.find_by_name(&qualified_name).is_some();
@@ -1585,7 +1571,6 @@ impl MemoryServer {
                     }
                 };
 
-                // Read the memory; if it was deleted but still in the index, skip it.
                 let memory = match state.router.read_memory(&mref.name, &mref.scope).await {
                     Ok(m) => m,
                     Err(e) => {
@@ -1773,7 +1758,6 @@ impl MemoryServer {
             // Track whether content changed so we can skip re-embedding when only tags changed.
             let content_changed = args.content.is_some();
 
-            // Read the existing memory.
             timing.stage = "read";
             let stage_start = Instant::now();
             let read_result = state.router.read_memory(&name, &scope).await;
@@ -2235,7 +2219,6 @@ impl MemoryServer {
                 return Err(sync_failure_error(&sync_result, &branch));
             }
 
-            // Build pull status summary.
             let pull_status = if !pull_first {
                 "skipped".to_string()
             } else if sync_result.results.len() == 1 {
@@ -2662,6 +2645,17 @@ mod tests {
     use async_trait::async_trait;
     use rmcp::model::ContentBlock as Content;
     use std::sync::Arc;
+
+    /// Local path as a `file://` URL: forward slashes everywhere, and the
+    /// third slash only for non-root paths (e.g. Windows drive roots).
+    fn file_url(path: &std::path::Path) -> String {
+        let p = path.display().to_string().replace('\\', "/");
+        if p.starts_with('/') {
+            format!("file://{p}")
+        } else {
+            format!("file:///{p}")
+        }
+    }
 
     struct ListTestEmbedding;
 
@@ -3097,10 +3091,6 @@ mod tests {
             );
         }
     }
-
-    // -----------------------------------------------------------------------
-    // Wire-contract tests — the recall result entry shape MCP clients see.
-    // -----------------------------------------------------------------------
 
     fn wire_test_memory() -> Memory {
         let metadata = MemoryMetadata::new(Scope::Root, vec!["tag-a".to_string()], None);
@@ -5066,11 +5056,6 @@ mod tests {
                 .await;
         }
 
-        // -------------------------------------------------------------------
-        // Sync fixture: bare origin + writer repo + server state over the
-        // same origin, so tests can author pulled changes.
-        // -------------------------------------------------------------------
-
         struct SyncFixture {
             _remote_dir: tempfile::TempDir,
             writer_dir: tempfile::TempDir,
@@ -5083,11 +5068,7 @@ mod tests {
         fn sync_fixture() -> SyncFixture {
             let remote_dir = tempfile::tempdir().expect("tempdir");
             git2::Repository::init_bare(remote_dir.path()).expect("bare init");
-            // Forward slashes are required for a `file://` URL on Windows.
-            let remote_url = format!(
-                "file:///{}",
-                remote_dir.path().display().to_string().replace('\\', "/")
-            );
+            let remote_url = file_url(remote_dir.path());
 
             let writer_dir = tempfile::tempdir().expect("tempdir");
             let writer = Arc::new(
@@ -5451,11 +5432,7 @@ mod tests {
             // Reachable bare origin for the default repo, seeded by a writer.
             let remote_dir = tempfile::tempdir().expect("tempdir");
             git2::Repository::init_bare(remote_dir.path()).expect("bare init");
-            // Forward slashes are required for a `file://` URL on Windows.
-            let remote_url = format!(
-                "file:///{}",
-                remote_dir.path().display().to_string().replace('\\', "/")
-            );
+            let remote_url = file_url(remote_dir.path());
             let writer_dir = tempfile::tempdir().expect("tempdir");
             let writer = Arc::new(
                 MemoryRepo::init_or_open(writer_dir.path(), Some(&remote_url))
@@ -6040,11 +6017,7 @@ mod tests {
             // Non-empty remote: a writer pushes one memory to a bare origin.
             let remote_dir = tempfile::tempdir().expect("tempdir");
             git2::Repository::init_bare(remote_dir.path()).expect("bare init");
-            // Forward slashes are required for a `file://` URL on Windows.
-            let remote_url = format!(
-                "file:///{}",
-                remote_dir.path().display().to_string().replace('\\', "/")
-            );
+            let remote_url = file_url(remote_dir.path());
 
             let writer_dir = tempfile::tempdir().expect("tempdir");
             let writer = Arc::new(
@@ -6134,14 +6107,7 @@ mod tests {
             // Default remote: a writer pushes one root-scope memory to main.
             let default_remote_dir = tempfile::tempdir().expect("tempdir");
             git2::Repository::init_bare(default_remote_dir.path()).expect("bare init");
-            let default_url = format!(
-                "file:///{}",
-                default_remote_dir
-                    .path()
-                    .display()
-                    .to_string()
-                    .replace('\\', "/")
-            );
+            let default_url = file_url(default_remote_dir.path());
             let default_writer_dir = tempfile::tempdir().expect("tempdir");
             let default_writer = Arc::new(
                 MemoryRepo::init_or_open(default_writer_dir.path(), Some(&default_url))
@@ -6165,14 +6131,7 @@ mod tests {
             let work_scope = Scope::Path(crate::types::ScopePath::new("work").unwrap());
             let work_remote_dir = tempfile::tempdir().expect("tempdir");
             git2::Repository::init_bare(work_remote_dir.path()).expect("bare init");
-            let work_url = format!(
-                "file:///{}",
-                work_remote_dir
-                    .path()
-                    .display()
-                    .to_string()
-                    .replace('\\', "/")
-            );
+            let work_url = file_url(work_remote_dir.path());
             let work_writer_dir = tempfile::tempdir().expect("tempdir");
             let work_writer = Arc::new(
                 MemoryRepo::init_or_open(work_writer_dir.path(), Some(&work_url))

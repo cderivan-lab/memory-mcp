@@ -1773,12 +1773,14 @@ mod tests {
         let dir = tempfile::tempdir().expect("failed to create temp dir");
         git2::Repository::init_bare(dir.path()).expect("failed to init bare repo");
         // `display()` yields backslashes on Windows; a `file://` URL needs
-        // forward slashes (and a third slash for the drive), so libgit2 can
-        // resolve the local bare-remote path.
-        let url = format!(
-            "file:///{}",
-            dir.path().display().to_string().replace('\\', "/")
-        );
+        // forward slashes. Unix absolute paths already carry a leading `/`,
+        // so only non-root paths need the extra slash before the drive/root.
+        let p = dir.path().display().to_string().replace('\\', "/");
+        let url = if p.starts_with('/') {
+            format!("file://{p}")
+        } else {
+            format!("file:///{p}")
+        };
         (dir, url)
     }
 
