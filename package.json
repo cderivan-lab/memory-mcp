@@ -163,7 +163,7 @@
     "pkginstall": "code --install-extension pali-memory-1.0.0.vsix",
     "pkguninstall": "code --uninstall-extension cderivan.pali-memory",
     "reinstall": "npm run pkguninstall & npm run pkginstall",
-    "test:e2e": "vscode-test",
+    "test:e2e": "npm run compile:tests && vscode-test",
     "test:coverage": "c8 mocha test/**/*.test.js test/**/*.test.mjs --options c8-node-options=http2 && cargo llvm-cov nextest",
     "test:vsix": "mocha test/vsix.test.js",
     "test:hooks": "mocha hooks/test/**/*.test.mjs",
