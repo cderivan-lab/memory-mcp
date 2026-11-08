@@ -68,7 +68,7 @@
 ## Acceptance Criteria
 
 - [ ] `config.json` and `tokenizer.json` committed in `models/bge-small-en-v1.5/`
-- [ ] `model.safetensors` present locally after `scripts/fetch-model.sh` (or extension install)
+- [ ] `model.safetensors` present locally after `scripts/fetch-model.sh` or a server HF download
 - [ ] `model.safetensors` is gitignored and absent from `git ls-files`
 - [ ] `config.json` has `"architectures": ["BertModel"]`
 - [ ] `tokenizer.json` has valid vocab structure

@@ -8,8 +8,6 @@ fn subtree(s: &str) -> ScopeFilter {
     ScopeFilter::Subtree(ScopePath::new(s).unwrap())
 }
 
-// --- ScopePath validation ---
-
 #[test]
 fn validate_scope_path_rejects_traversal() {
     assert!(ScopePath::validate("../evil").is_err());
@@ -54,8 +52,6 @@ fn validate_scope_path_rejects_dot_prefix() {
     assert!(ScopePath::validate(".hidden").is_err());
     assert!(ScopePath::validate("foo/.config").is_err());
 }
-
-// --- Scope ---
 
 #[test]
 fn scope_dir_prefix() {
@@ -104,8 +100,6 @@ fn scope_display() {
     assert_eq!(path("my-project").to_string(), "my-project");
     assert_eq!(path("org/team").to_string(), "org/team");
 }
-
-// --- Scope serde ---
 
 #[test]
 fn scope_serde_new_variants() {
@@ -164,8 +158,6 @@ fn scope_serde_rejects_traversal_in_wire_format() {
     assert!(serde_json::from_str::<Scope>(json).is_err());
 }
 
-// --- Scope::parse_or_default ---
-
 #[test]
 fn test_parse_scope_none_defaults_root() {
     assert_eq!(Scope::parse_or_default(None).unwrap(), Scope::Root);
@@ -191,8 +183,6 @@ fn test_parse_scope_some_bare_path() {
         path("org/team")
     );
 }
-
-// --- ScopeFilter::parse_or_default / FromStr ---
 
 #[test]
 fn scope_filter_none_defaults_to_root_only() {
@@ -252,8 +242,6 @@ fn scope_filter_from_str_bare_path() {
     );
 }
 
-// --- Subtree matching ---
-
 #[test]
 fn scope_filter_subtree_matches_root_path_and_children() {
     assert!(scope_path_matches("eng", "eng"), "exact match");
@@ -270,8 +258,6 @@ fn scope_path_matches_empty_prefix_matches_nothing() {
     assert!(!scope_path_matches("anything", ""));
     assert!(!scope_path_matches("a/b/c", ""));
 }
-
-// --- Negative parsing tests ---
 
 #[test]
 fn scope_parse_rejects_space() {
@@ -304,8 +290,6 @@ fn scope_parse_bare_path_succeeds() {
         "'bogus' should be a valid bare path scope"
     );
 }
-
-// --- validate_branch_name ---
 
 #[test]
 fn validate_branch_name_accepts_valid() {

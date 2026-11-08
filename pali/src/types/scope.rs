@@ -6,10 +6,6 @@ use crate::error::MemoryError;
 
 use super::validated::{ValidatedString, deserialize_validated};
 
-// ---------------------------------------------------------------------------
-// ScopePath newtype
-// ---------------------------------------------------------------------------
-
 /// A validated scope path for use in [`Scope::Path`].
 ///
 /// Wraps a `String` that has been validated by `ValidatedString::validate`. Once
@@ -125,10 +121,6 @@ impl<'de> Deserialize<'de> for ScopePath {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Scope
-// ---------------------------------------------------------------------------
-
 /// Where a memory lives on disk and conceptually.
 ///
 /// - `Root`        → `global/`
@@ -233,10 +225,6 @@ impl FromStr for Scope {
     }
 }
 
-// ---------------------------------------------------------------------------
-// ScopeFilter — for read-only queries (recall, list)
-// ---------------------------------------------------------------------------
-
 /// Controls which scopes are searched during read-only operations.
 ///
 /// This is distinct from [`Scope`], which is a storage target for write
@@ -297,10 +285,6 @@ impl ScopeFilter {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Scope path matching
-// ---------------------------------------------------------------------------
-
 /// Returns `true` if `path` equals `prefix` exactly or is a direct child
 /// path of `prefix` (i.e. starts with `"prefix/"`).
 ///
@@ -337,10 +321,6 @@ impl Scope {
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// Helper functions
-// ---------------------------------------------------------------------------
 
 /// Validate a git branch name to prevent ref injection.
 ///

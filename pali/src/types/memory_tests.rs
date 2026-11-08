@@ -5,8 +5,6 @@ fn path(s: &str) -> Scope {
     Scope::Path(ScopePath::new(s).unwrap())
 }
 
-// --- MemoryName ---
-
 #[test]
 fn memory_name_valid() {
     let name = MemoryName::new("my-memory").unwrap();
@@ -56,8 +54,6 @@ fn memory_name_serde_round_trip() {
     assert!(empty.is_err());
 }
 
-// --- validate_name ---
-
 #[test]
 fn validate_name_accepts_valid() {
     assert!(MemoryName::validate("my-memory").is_ok());
@@ -91,8 +87,6 @@ fn validate_name_rejects_empty_component() {
     assert!(MemoryName::validate("foo//bar").is_err());
     assert!(MemoryName::validate("/absolute").is_err());
 }
-
-// --- Memory round-trip ---
 
 fn make_memory() -> Memory {
     let meta = MemoryMetadata {
@@ -254,8 +248,6 @@ fn from_markdown_missing_frontmatter_fails() {
     assert!(result.is_err());
 }
 
-// --- parse_qualified_name ---
-
 #[test]
 fn test_parse_qualified_name_global() {
     let r = parse_qualified_name("global/my-memory").unwrap();
@@ -324,8 +316,6 @@ fn parse_qualified_name_rejects_empty_name() {
 fn parse_qualified_name_rejects_missing_name_separator() {
     assert!(parse_qualified_name("scope=foo").is_err());
 }
-
-// --- MemoryRef ---
 
 #[test]
 fn memory_ref_qualified_path_global() {

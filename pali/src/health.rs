@@ -9,10 +9,6 @@ use std::time::Instant;
 
 use arc_swap::ArcSwap;
 
-// ---------------------------------------------------------------------------
-// SubsystemStatus
-// ---------------------------------------------------------------------------
-
 /// Per-subsystem health snapshot. Immutable once created.
 pub struct SubsystemStatus {
     /// Whether the subsystem is currently healthy.
@@ -35,10 +31,6 @@ impl SubsystemStatus {
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// SubsystemReporter
-// ---------------------------------------------------------------------------
 
 /// Lightweight handle for a subsystem to report its health.
 ///
@@ -91,10 +83,6 @@ impl Default for SubsystemReporter {
         Self::new()
     }
 }
-
-// ---------------------------------------------------------------------------
-// HealthRegistry
-// ---------------------------------------------------------------------------
 
 /// Central registry holding reporters for all subsystems.
 ///

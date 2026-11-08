@@ -190,8 +190,5 @@
     "glob": "^14.0.3",
     "minimatch": "^11.0.3",
     "serialize-javascript": "^7.1.4"
-  },
-  "dependencies": {
-    "os": "^0.1.2"
   }
 }

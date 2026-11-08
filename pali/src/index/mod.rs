@@ -17,17 +17,9 @@ pub mod usearch;
 pub use in_memory::InMemoryStore;
 pub use usearch::UsearchStore;
 
-// ---------------------------------------------------------------------------
-// Sealed trait — prevents external implementations of VectorStore
-// ---------------------------------------------------------------------------
-
 pub(crate) mod sealed {
     pub trait Sealed {}
 }
-
-// ---------------------------------------------------------------------------
-// VectorStore trait
-// ---------------------------------------------------------------------------
 
 /// A pluggable vector similarity store.
 ///
@@ -95,10 +87,6 @@ pub trait VectorStore: Send + Sync + sealed::Sealed {
     /// Overwrite the stored commit SHA.
     fn set_commit_sha(&self, sha: Option<&str>);
 }
-
-// ---------------------------------------------------------------------------
-// Trait-level tests — run against both implementations
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {

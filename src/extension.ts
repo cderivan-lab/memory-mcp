@@ -11,7 +11,6 @@ import {
   bundledBinaryPath,
   MODEL_FILES,
   modelPathProblem,
-  resolveModelDir,
   resolvePaliBinary,
 } from './utils/install_pali';
 import type { ResolveResult } from './utils/install_pali';
@@ -90,8 +89,7 @@ async function usableModelPath(configured: string): Promise<string | undefined> 
 }
 
 /**
- * Read settings for the hooks and the server definition. The installed model
- * directory travels with the same binary resolution.
+ * Read settings for the hooks and the server definition.
  */
 async function settings(
   context: vscode.ExtensionContext,

@@ -12,10 +12,6 @@ use super::{
     validated::{ValidatedString, deserialize_validated},
 };
 
-// ---------------------------------------------------------------------------
-// MemoryName newtype
-// ---------------------------------------------------------------------------
-
 /// A validated memory name.
 ///
 /// Wraps a `String` that has been validated by `ValidatedString::validate`. Constructing
@@ -138,10 +134,6 @@ impl schemars::JsonSchema for MemoryName {
     }
 }
 
-// ---------------------------------------------------------------------------
-// MemoryMetadata
-// ---------------------------------------------------------------------------
-
 /// Metadata attached to every [`Memory`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryMetadata {
@@ -170,10 +162,6 @@ impl MemoryMetadata {
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// Memory
-// ---------------------------------------------------------------------------
 
 /// A single memory unit, stored on disk as a markdown file with YAML frontmatter.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -278,14 +266,12 @@ impl Memory {
 
     /// Parse from on-disk markdown format.
     pub fn from_markdown(raw: &str) -> Result<Self, MemoryError> {
-        // Must start with "---\n"
         let rest = raw
             .strip_prefix("---\n")
             .ok_or_else(|| MemoryError::InvalidInput {
                 reason: "missing opening frontmatter delimiter".to_string(),
             })?;
 
-        // Find the closing "---"
         let end_marker = rest
             .find("\n---\n")
             .ok_or_else(|| MemoryError::InvalidInput {
@@ -353,10 +339,6 @@ impl Memory {
     }
 }
 
-// ---------------------------------------------------------------------------
-// MemoryRef — a scope+name pair
-// ---------------------------------------------------------------------------
-
 /// A reference to a specific memory: scope + validated name.
 ///
 /// Serde support exists for wire shapes that embed a parent reference
@@ -400,10 +382,6 @@ impl fmt::Display for MemoryRef {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Helper functions
-// ---------------------------------------------------------------------------
-
 /// Parse a qualified name back into a [`MemoryRef`].
 ///
 /// Accepts three forms:
@@ -434,8 +412,7 @@ impl fmt::Display for MemoryRef {
 /// surface: it returns raw repo paths to preserve the 0.16.0 value contract
 /// and is not the frontmatter-safe incremental-reindex path.
 pub fn parse_qualified_name(qualified: &str) -> Result<MemoryRef, MemoryError> {
-    // Versioned canonical key form: "v1:scope=...;name=..."
-    // Unversioned form "scope=...;name=..." is also accepted as v1 for backward compat.
+    // Canonical key form ("v1:scope=...;name=..."; unversioned accepted as v1).
     let key_body = qualified
         .strip_prefix("v1:")
         .and_then(|rest| rest.strip_prefix("scope=").map(|_| &rest["scope=".len()..]))

@@ -2,10 +2,6 @@ use serde::Deserialize;
 
 use crate::error::MemoryError;
 
-// ---------------------------------------------------------------------------
-// ValidatedString trait
-// ---------------------------------------------------------------------------
-
 /// A string newtype that validates its contents at construction.
 ///
 /// Both [`ScopePath`] and [`MemoryName`] implement this trait. Future validated
