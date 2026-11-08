@@ -26,16 +26,24 @@ jobs:
     permissions:
       contents: read
     steps:
+      # Needed on the self-hosted Gitea instance (internal CA); harmless on
+      # GitHub-hosted runners.
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config g++
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master (2026-03-27)
         with:
           toolchain: stable
+          # rustfmt/clippy are not in the minimal profile this action installs,
+          # so name them instead of relying on the runner image preinstalling
+          # them (GitHub images do; a bare rustup image does not).
           components: rustfmt
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           cache-bin: "false"
+      - name: cargo fmt --check
+        if: (github.event_name == 'workflow_dispatch' && inputs.fmt-check) || vars.FMT_CHECK == 'true'
+        run: cargo fmt --check
       - name: cargo fmt --check
         if: (github.event_name == 'workflow_dispatch' && inputs.fmt-check) || vars.FMT_CHECK == 'true'
         run: cargo fmt --check
@@ -50,9 +58,11 @@ jobs:
         features:
           - ""
     steps:
+      # Needed on the self-hosted Gitea instance (internal CA); harmless on
+      # GitHub-hosted runners.
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config g++
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master (2026-03-27)
         with:
           toolchain: stable
@@ -73,9 +83,11 @@ jobs:
         features:
           - ""
     steps:
+      # Needed on the self-hosted Gitea instance (internal CA); harmless on
+      # GitHub-hosted runners.
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config g++
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master (2026-03-27)
         with:
           toolchain: stable
@@ -86,6 +98,10 @@ jobs:
       - name: Install cargo-nextest
         run: |
           set -euo pipefail
+          # The runner is x86_64 on cosmos and on GitHub-hosted ubuntu runners,
+          # but arm64 when act runs the job on an Apple Silicon host. A
+          # hardcoded x86_64 prebuilt there dies with "rosetta error: failed to
+          # open elf at /lib64/ld-linux-x86-64.so.2", so pick by machine.
           case "$(uname -m)" in
             x86_64)
               arch=x86_64-unknown-linux-gnu
@@ -101,20 +117,25 @@ jobs:
               ;;
           esac
           curl -fsSL --proto '=https' "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.136/cargo-nextest-0.9.136-${arch}.tar.gz" \
+          curl -fsSL --proto '=https' "https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.136/cargo-nextest-0.9.136-${arch}.tar.gz" \
             -o /tmp/cargo-nextest.tar.gz
           echo "${sum}  /tmp/cargo-nextest.tar.gz" | sha256sum -c -
           if [ "$(id -u)" -ne 0 ]; then S=sudo; else S=; fi
           $S tar xzf /tmp/cargo-nextest.tar.gz -C /usr/local/bin
-      - name: Download embedding model for tests
-        run: scripts/fetch-model.sh
-      - name: Run cargo nextest tests
-        run: cargo nextest run --workspace --no-fail-fast --test-threads=1 ${{ matrix.features }}
+      - run: cargo nextest run --workspace --no-fail-fast ${{ matrix.features }}
 
+  # End-to-end: the extension inside a real VS Code host, and a UI run that
+  # clicks the install notification (VS Code exposes no API for that, so it
+  # needs a real driver). Both open a window, hence xvfb. The two large
+  # downloads — VS Code for each runner and ChromeDriver for ExTester — are
+  # cached, so only a lockfile change re-downloads them.
   test-e2e:
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
+      # Needed on the self-hosted Gitea instance (internal CA); harmless on
+      # GitHub-hosted runners.
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Install a virtual display
         run: |
@@ -123,7 +144,7 @@ jobs:
       # `npm run build` compiles the server crate and stages out/bin/pali, so this
       # job needs the same Rust toolchain and native dependencies as `test`.
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config g++
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master (2026-03-27)
         with:
           toolchain: stable
@@ -176,11 +197,16 @@ jobs:
             test-resources/chromedriver.log
           retention-days: 3
 
+  # Package the extension the way a release does, so broken vsce packaging or a
+  # stale manifest fails on the PR instead of on the tag. No binary is staged
+  # here, so this VSIX is a packaging check rather than a shippable artifact.
   vsix:
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
+      # Needed on the self-hosted Gitea instance (internal CA); harmless on
+      # GitHub-hosted runners.
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Install dependencies
         # `npm ci` pins the resolved tree, including the package.json overrides
@@ -207,6 +233,9 @@ jobs:
           path: "*.vsix"
           retention-days: 1
 
+  # Catch cross-platform compilation failures before they reach the release pipeline.
+  # Mirrors the release.yml publish-binaries matrix (minus Windows — see #42).
+  # Only runs on main-targeted PRs and pushes — stacked PRs skip this.
   cross-compile:
     if: github.event_name != 'pull_request' || github.base_ref == 'main'
     strategy:
@@ -229,10 +258,12 @@ jobs:
     permissions:
       contents: read
     steps:
+      # Needed on the self-hosted Gitea instance (internal CA); harmless on
+      # GitHub-hosted runners.
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Install system dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config g++
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master (2026-03-27)
         with:
           toolchain: stable
@@ -257,19 +288,22 @@ jobs:
     permissions:
       contents: read
     steps:
+      # Needed on the self-hosted Gitea instance (internal CA); harmless on
+      # GitHub-hosted runners.
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master (2026-03-27)
-        with:
-          toolchain: stable
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check
-          rust-version: stable
 
+  # Test coverage: Rust with llvm-cov (default + all-features), JS/TS with c8.
+  # Reports are generated in lcov format and uploaded as artifacts.
   coverage:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      # Needed for codecov/fellowship to upload coverage reports.
+      # Remove if not using a coverage reporter.
+      # id-token: write  # for codecov
     strategy:
       fail-fast: false
       matrix:
@@ -286,7 +320,7 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config g++
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master (2026-03-27)
         with:
           toolchain: stable
@@ -340,8 +374,6 @@ jobs:
           echo "${sum}  /tmp/cargo-llvm-cov.tar.gz" | sha256sum -c -
           if [ "$(id -u)" -ne 0 ]; then S=sudo; else S=; fi
           $S tar xzf /tmp/cargo-llvm-cov.tar.gz -C /usr/local/bin
-      - name: Download embedding model for tests
-        run: scripts/fetch-model.sh
       - name: Run Rust tests with coverage
         if: matrix.js_tests != 'true'
         run: |
@@ -355,9 +387,6 @@ jobs:
           set -euo pipefail
           npm ci --ignore-scripts
           npm run build:binary
-      - name: Download embedding model for JS tests
-        if: matrix.js_tests == 'true'
-        run: scripts/fetch-model.sh
       - name: Run JS/TS tests with coverage
         if: matrix.js_tests == 'true'
         run: |
@@ -378,6 +407,8 @@ jobs:
     permissions:
       contents: read
     steps:
+      # Needed on the self-hosted Gitea instance (internal CA); harmless on
+      # GitHub-hosted runners.
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
