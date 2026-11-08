@@ -11,10 +11,8 @@ use tracing::{info, warn};
 use crate::{
     error::MemoryError,
     health::SubsystemReporter,
-    repo::MemoryRepo,
-    types::{
-        ChangedMemories, Memory, MemoryName, PullResult, ResolvedChanges, Scope, scope_path_matches,
-    },
+    repo::{ChangedMemories, MemoryRepo, PullResult, ResolvedChanges},
+    types::{Memory, MemoryName, Scope, scope_path_matches},
 };
 
 /// A scope-to-repo entry in the router.

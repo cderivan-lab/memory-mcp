@@ -6,11 +6,16 @@ mod memory;
 mod scope;
 mod validated;
 
-pub(crate) use args::ResolvedChanges;
+// Compatibility re-exports: these domain types moved to their owning modules
+// (git outcomes live with the repo, composition state lives in `state`) but
+// remain available on `pali::types` for existing in-crate consumers (binary,
+// tests).
+pub use crate::repo::{ChangedMemories, PullResult};
+pub use crate::state::{AppState, ReindexStats};
+
 pub use args::{
-    AppState, BatchMarkAppliedArgs, ChangedMemories, EditArgs, ForgetArgs, ListArgs, ListField,
-    MarkAppliedArgs, MoveArgs, PullResult, ReadArgs, RecallArgs, RecallStatsArgs, ReindexStats,
-    RememberArgs, SyncArgs, Verdict, VerdictEntry,
+    BatchMarkAppliedArgs, EditArgs, ForgetArgs, ListArgs, ListField, MarkAppliedArgs, MoveArgs,
+    ReadArgs, RecallArgs, RecallStatsArgs, RememberArgs, SyncArgs, Verdict, VerdictEntry,
 };
 
 pub(crate) use args::{LIST_MAX_LIMIT, ListToolArgs, ListToolField, RecallToolArgs};

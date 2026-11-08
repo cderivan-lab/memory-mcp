@@ -10,9 +10,7 @@ use tracing::{info, warn};
 use crate::{
     error::MemoryError,
     health::SubsystemReporter,
-    types::{
-        ChangedMemories, Memory, MemoryMetadata, MemoryName, PullResult, ResolvedChanges, Scope,
-    },
+    types::{Memory, MemoryMetadata, MemoryName, MemoryRef, Scope},
 };
 
 /// Strip userinfo (credentials) from a URL before logging.
@@ -241,6 +239,103 @@ where
         let _guard = tracing::dispatcher::set_default(&dispatch);
         f()
     })
+}
+
+/// The outcome of a `pull()` operation.
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum PullResult {
+    /// No `origin` remote is configured — running in local-only mode.
+    NoRemote,
+    /// The local branch was already up to date with the remote.
+    UpToDate,
+    /// The remote was ahead and the branch was fast-forwarded.
+    FastForward {
+        /// Commit OID before the fast-forward.
+        old_head: [u8; 20],
+        /// Commit OID after the fast-forward.
+        new_head: [u8; 20],
+    },
+    /// A merge was performed; `conflicts_resolved` counts auto-resolved files.
+    Merged {
+        /// Number of conflicting files that were auto-resolved.
+        conflicts_resolved: usize,
+        /// Commit OID before the merge.
+        old_head: [u8; 20],
+        /// Commit OID after the merge.
+        new_head: [u8; 20],
+    },
+}
+
+/// Memories that changed between two git commits.
+///
+/// This is the crate's public change-set surface: repository-path strings
+/// (without the `.md` suffix, e.g. `"global/foo"`, `"projects/a/b/mem"`) for
+/// added/modified and deleted memories, derived straight from the git deltas. It is produced by
+/// [`MemoryRepo::diff_changed_memories`], which reports every
+/// changed `.md` file — including ones whose blob is non-UTF-8 or has
+/// unparseable frontmatter — because a path is available even when the content
+/// cannot be resolved to a memory.
+///
+/// Internally the index-mirror path does NOT consume these strings: it uses the
+/// richer crate-internal `ResolvedChanges` (structured [`MemoryRef`]s
+/// plus an `unresolved` count, produced by
+/// `MemoryRepo::diff_changed_refs`) so hierarchical scopes are resolved from
+/// frontmatter rather than by splitting a path back into scope + name, which is
+/// ambiguous (`projects/a/b/mem.md` could be scope `a/b`, name `mem` or scope
+/// `a`, name `b/mem`).
+#[derive(Debug, Default)]
+pub struct ChangedMemories {
+    /// Repository-path qualified names without the `.md` suffix (e.g.
+    /// `"global/foo"`) that were added or modified.
+    pub upserted: Vec<String>,
+    /// Repository-path qualified names (e.g. `"global/foo"`) that were deleted.
+    pub removed: Vec<String>,
+}
+
+impl ChangedMemories {
+    /// Returns `true` if there are no changes.
+    pub fn is_empty(&self) -> bool {
+        self.upserted.is_empty() && self.removed.is_empty()
+    }
+}
+
+/// Changed memories resolved to structured references, for the index mirror.
+///
+/// Every changed file is resolved to a [`MemoryRef`] by parsing the
+/// blob's YAML frontmatter (the new tree for upserts, the old tree for
+/// removals) — the same authority `list_memories` uses to build the canonical
+/// index keys, so hierarchical scope paths are never split ambiguously
+/// (`projects/a/b/mem.md` is unambiguously scope `a/b`, name `mem`, not scope
+/// `a`, name `b/mem`). Files that cannot be resolved (unparseable frontmatter,
+/// non-UTF-8 content, or a non-memory object such as a symlink) are counted in
+/// `unresolved` so callers degrade derived indexes instead of committing a
+/// silently reduced change set.
+///
+/// Crate-internal on purpose: it carries the structured `scope`/`name` the
+/// mirror needs; the public [`ChangedMemories`] surface stays the stable
+/// repository-path contract.
+#[derive(Debug, Default)]
+pub(crate) struct ResolvedChanges {
+    /// Memories that were added or modified (resolved from the new tree).
+    pub(crate) upserted: Vec<MemoryRef>,
+    /// Memories that were deleted (resolved from the old tree).
+    pub(crate) removed: Vec<MemoryRef>,
+    /// Changed memory files whose reference could not be resolved. Any
+    /// non-zero value means the change set is incomplete: derived indexes
+    /// must be marked for rebuild rather than treated as fully mirrored.
+    pub(crate) unresolved: usize,
+}
+
+impl ResolvedChanges {
+    /// Returns `true` if there are no resolved changes to apply.
+    ///
+    /// Deliberately ignores `unresolved` — callers must check that field
+    /// separately, because an all-unresolved change set still requires the
+    /// derived indexes to be degraded and repaired.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.upserted.is_empty() && self.removed.is_empty()
+    }
 }
 
 /// Git-backed repository for persisting and syncing memory files.
@@ -1162,15 +1257,14 @@ impl MemoryRepo {
     /// `upserted`; deleted and type-changed files go into `removed`. Qualified
     /// names are returned without the `.md` suffix (e.g. `"global/foo"`).
     ///
-    /// This is the published, stable change-set surface: it derives its strings
+    /// This is the stable public change-set surface: it derives its strings
     /// straight from the git delta paths and reports **every** changed `.md`
     /// file — including ones whose blob is non-UTF-8 or has unparseable
     /// frontmatter — because a path is always available even when the content
     /// is not. This is deliberately distinct from the crate-internal
     /// `Self::diff_changed_refs`, which resolves each file to a canonical
     /// [`crate::types::MemoryRef`] (and drops/counts the unresolvable ones) for
-    /// the complete-or-degraded index mirror. The public method exists to
-    /// preserve the exact 0.16.0 value contract; the mirror path uses
+    /// the complete-or-degraded index mirror; the mirror path uses
     /// `diff_changed_refs`.
     ///
     /// Must be called from within `spawn_blocking` since it reads git objects.
@@ -1755,7 +1849,7 @@ impl MemoryRepo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{Memory, MemoryMetadata, PullResult, Scope, ScopePath};
+    use crate::types::{Memory, MemoryMetadata, Scope, ScopePath};
     use std::sync::Arc;
 
     fn make_memory(name: &str, content: &str, updated_at_secs: i64) -> Memory {
@@ -2539,7 +2633,7 @@ mod tests {
     }
 
     /// Helper: commit raw bytes (which may be non-UTF-8) at `rel_path` and
-    /// return the new HEAD OID bytes. Used to exercise the published
+    /// return the new HEAD OID bytes. Used to exercise the public
     /// `diff_changed_memories` path contract against blobs that cannot be
     /// resolved to a memory.
     fn commit_bytes(repo: &Arc<MemoryRepo>, rel_path: &str, content: &[u8]) -> [u8; 20] {
@@ -2870,9 +2964,9 @@ mod tests {
         );
     }
 
-    /// Published-contract regression guard for `diff_changed_memories`.
+    /// Public-contract regression guard for `diff_changed_memories`.
     ///
-    /// This is the stable 0.16.0 public surface, distinct from the internal
+    /// This is the stable public surface, distinct from the internal
     /// `diff_changed_refs` mirror path. It must return **repository-path**
     /// strings without the `.md` suffix (e.g. `projects/a/b/mem`,
     /// `global/broken`), derived straight from git deltas — NOT canonical
