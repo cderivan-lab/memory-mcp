@@ -5084,7 +5084,10 @@ mod tests {
             let remote_dir = tempfile::tempdir().expect("tempdir");
             git2::Repository::init_bare(remote_dir.path()).expect("bare init");
             // Forward slashes are required for a `file://` URL on Windows.
-            let remote_url = format!("file:///{}", remote_dir.path().display().to_string().replace('\\', "/"));
+            let remote_url = format!(
+                "file:///{}",
+                remote_dir.path().display().to_string().replace('\\', "/")
+            );
 
             let writer_dir = tempfile::tempdir().expect("tempdir");
             let writer = Arc::new(
@@ -5449,7 +5452,10 @@ mod tests {
             let remote_dir = tempfile::tempdir().expect("tempdir");
             git2::Repository::init_bare(remote_dir.path()).expect("bare init");
             // Forward slashes are required for a `file://` URL on Windows.
-            let remote_url = format!("file:///{}", remote_dir.path().display().to_string().replace('\\', "/"));
+            let remote_url = format!(
+                "file:///{}",
+                remote_dir.path().display().to_string().replace('\\', "/")
+            );
             let writer_dir = tempfile::tempdir().expect("tempdir");
             let writer = Arc::new(
                 MemoryRepo::init_or_open(writer_dir.path(), Some(&remote_url))
@@ -6035,7 +6041,10 @@ mod tests {
             let remote_dir = tempfile::tempdir().expect("tempdir");
             git2::Repository::init_bare(remote_dir.path()).expect("bare init");
             // Forward slashes are required for a `file://` URL on Windows.
-            let remote_url = format!("file:///{}", remote_dir.path().display().to_string().replace('\\', "/"));
+            let remote_url = format!(
+                "file:///{}",
+                remote_dir.path().display().to_string().replace('\\', "/")
+            );
 
             let writer_dir = tempfile::tempdir().expect("tempdir");
             let writer = Arc::new(
@@ -6125,8 +6134,14 @@ mod tests {
             // Default remote: a writer pushes one root-scope memory to main.
             let default_remote_dir = tempfile::tempdir().expect("tempdir");
             git2::Repository::init_bare(default_remote_dir.path()).expect("bare init");
-            let default_url =
-                format!("file:///{}", default_remote_dir.path().display().to_string().replace('\\', "/"));
+            let default_url = format!(
+                "file:///{}",
+                default_remote_dir
+                    .path()
+                    .display()
+                    .to_string()
+                    .replace('\\', "/")
+            );
             let default_writer_dir = tempfile::tempdir().expect("tempdir");
             let default_writer = Arc::new(
                 MemoryRepo::init_or_open(default_writer_dir.path(), Some(&default_url))
@@ -6150,8 +6165,14 @@ mod tests {
             let work_scope = Scope::Path(crate::types::ScopePath::new("work").unwrap());
             let work_remote_dir = tempfile::tempdir().expect("tempdir");
             git2::Repository::init_bare(work_remote_dir.path()).expect("bare init");
-            let work_url =
-                format!("file:///{}", work_remote_dir.path().display().to_string().replace('\\', "/"));
+            let work_url = format!(
+                "file:///{}",
+                work_remote_dir
+                    .path()
+                    .display()
+                    .to_string()
+                    .replace('\\', "/")
+            );
             let work_writer_dir = tempfile::tempdir().expect("tempdir");
             let work_writer = Arc::new(
                 MemoryRepo::init_or_open(work_writer_dir.path(), Some(&work_url))

@@ -68,7 +68,10 @@ async fn push_pull_with_bare_remote() {
     let remote_dir = tempfile::tempdir().unwrap();
     git2::Repository::init_bare(remote_dir.path()).expect("failed to init bare repo");
     // Forward slashes are required for a `file://` URL on Windows.
-    let remote_url = format!("file:///{}", remote_dir.path().display().to_string().replace('\\', "/"));
+    let remote_url = format!(
+        "file:///{}",
+        remote_dir.path().display().to_string().replace('\\', "/")
+    );
 
     // Init a local repo with origin pointing at the bare remote.
     let local_dir = tempfile::tempdir().unwrap();
