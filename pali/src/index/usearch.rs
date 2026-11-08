@@ -16,10 +16,6 @@ use crate::{
     types::{Scope, ScopeFilter, ScopePath},
 };
 
-// ---------------------------------------------------------------------------
-// RawIndex — private trait abstracting the usearch Index operations
-// ---------------------------------------------------------------------------
-
 const INITIAL_INDEX_CAPACITY: usize = 1024;
 
 struct RawSearchResults {
@@ -44,10 +40,6 @@ trait RawIndex: Send + Sync + Sized {
     fn size(&self) -> usize;
     fn capacity(&self) -> usize;
 }
-
-// ---------------------------------------------------------------------------
-// UsearchRawIndex — production RawIndex backed by usearch::Index
-// ---------------------------------------------------------------------------
 
 struct UsearchRawIndex {
     inner: Index,
@@ -98,10 +90,6 @@ impl RawIndex for UsearchRawIndex {
         self.inner.capacity()
     }
 }
-
-// ---------------------------------------------------------------------------
-// VectorIndex — generic over RawIndex
-// ---------------------------------------------------------------------------
 
 /// Internal state kept behind the mutex.
 struct VectorState<R: RawIndex> {
@@ -422,10 +410,6 @@ impl<R: RawIndex> VectorIndex<R> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// ScopeRegistry — typed wrapper around the per-scope index map
-// ---------------------------------------------------------------------------
-
 /// Owns all per-scope `VectorIndex` instances.
 ///
 /// Invariant: after `new`, the `Root` scope is always present. New scopes are
@@ -476,10 +460,6 @@ impl<R: RawIndex> ScopeRegistry<R> {
         self.scopes.iter()
     }
 }
-
-// ---------------------------------------------------------------------------
-// UsearchStore — implements VectorStore backed by VectorIndex<UsearchRawIndex>
-// ---------------------------------------------------------------------------
 
 /// Manages multiple `VectorIndex` instances — one per scope (global, each
 /// namespace) plus a combined "all" index. Every memory exists in exactly two
@@ -910,10 +890,6 @@ impl<R: RawIndex> UsearchStoreInner<R> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// VectorStore implementation for UsearchStore
-// ---------------------------------------------------------------------------
-
 impl crate::index::sealed::Sealed for UsearchStore {}
 
 impl crate::index::VectorStore for UsearchStore {
@@ -983,18 +959,10 @@ impl crate::index::VectorStore for UsearchStore {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::index::VectorStore;
-
-    // -----------------------------------------------------------------------
-    // FailingRawIndex — test double for error injection
-    // -----------------------------------------------------------------------
 
     /// Controls which operation `FailingRawIndex` will fail on.
     #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1161,10 +1129,6 @@ mod tests {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // VectorIndex tests (low-level)
-    // -----------------------------------------------------------------------
-
     fn make_index() -> VectorIndex {
         VectorIndex::new(4).expect("failed to create index")
     }
@@ -1215,10 +1179,6 @@ mod tests {
             "name_map entry should have been cleared"
         );
     }
-
-    // -----------------------------------------------------------------------
-    // UsearchStore tests — via VectorStore trait
-    // -----------------------------------------------------------------------
 
     fn make_store() -> UsearchStore {
         UsearchStore::new(8).expect("failed to create UsearchStore")
@@ -1460,10 +1420,6 @@ mod tests {
         );
     }
 
-    // -----------------------------------------------------------------------
-    // TC-03: FailingRawIndex is injectable
-    // -----------------------------------------------------------------------
-
     #[test]
     fn tc03_failing_raw_index_is_injectable() {
         let idx = make_failing_index(4, FailOn::Add, 0);
@@ -1513,18 +1469,15 @@ mod tests {
 
         let scope = Scope::Root;
 
-        // First add should succeed (fail_after=1 means first call succeeds).
         let first_name = "global/existing".to_string();
         fs.inner
             .add(&scope, &vec_a(), first_name.clone())
             .expect("first add should succeed");
 
-        // Second add should fail (all-index now fails).
         let second_name = "global/failing".to_string();
         let result = fs.inner.add(&scope, &vec_b(), second_name.clone());
         assert!(result.is_err(), "second add should fail");
 
-        // The first entry must still be findable.
         assert!(
             fs.inner.find_key_by_name(&first_name).is_some(),
             "TC-04b: existing entry should not be corrupted by rollback"
@@ -1582,17 +1535,12 @@ mod tests {
         let err = idx
             .add_with_next_key(&v, "test/name".to_string())
             .unwrap_err();
-        // Should be MemoryError::Index variant.
         assert!(
             matches!(err, MemoryError::Index(_)),
             "TC-05a: error should be MemoryError::Index, got: {:?}",
             err
         );
     }
-
-    // -----------------------------------------------------------------------
-    // TC-05b: Error Display has no usearch internals
-    // -----------------------------------------------------------------------
 
     #[test]
     fn tc05b_error_display_has_no_raw_usearch_type_names() {
@@ -1615,10 +1563,6 @@ mod tests {
         );
     }
 
-    // -----------------------------------------------------------------------
-    // TC-05b (real): Dimension mismatch produces clean MemoryError
-    // -----------------------------------------------------------------------
-
     #[test]
     fn tc05b_dimension_mismatch_error_is_clean() {
         let store = UsearchStore::new(8).expect("create");
@@ -1639,10 +1583,6 @@ mod tests {
             err
         );
     }
-
-    // -----------------------------------------------------------------------
-    // TC-06a: UsearchStore::is_ready() returns true
-    // -----------------------------------------------------------------------
 
     #[test]
     fn tc06a_usearch_store_is_ready() {

@@ -15,10 +15,6 @@ use crate::{
     },
 };
 
-// ---------------------------------------------------------------------------
-// Module-level helpers
-// ---------------------------------------------------------------------------
-
 /// Strip userinfo (credentials) from a URL before logging.
 ///
 /// `https://user:token@host/path` → `https://[REDACTED]@host/path`
@@ -260,10 +256,6 @@ pub struct MemoryRepo {
 // the Mutex, so MemoryRepo is Send + Sync.
 unsafe impl Send for MemoryRepo {}
 unsafe impl Sync for MemoryRepo {}
-
-// ---------------------------------------------------------------------------
-// Tree diff helpers
-// ---------------------------------------------------------------------------
 
 /// How a tracked path differs between two commits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
