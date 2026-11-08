@@ -49,6 +49,7 @@ jobs:
       matrix:
         features:
           - ""
+          - "--all-features"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Install system dependencies
@@ -72,6 +73,7 @@ jobs:
       matrix:
         features:
           - ""
+          - "--all-features"
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Install system dependencies
@@ -342,7 +344,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p coverage
-          cargo llvm-cov --profile test --workspace ${{ matrix.rust_features }} --no-fail-fast \
+          cargo llvm-cov nextest --workspace ${{ matrix.rust_features }} --no-fail-fast -j1 \
             --lcov --output-path coverage/lcov.info
       - name: Install npm dependencies and build
         if: matrix.js_tests == 'true'
