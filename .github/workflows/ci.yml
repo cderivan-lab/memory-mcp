@@ -108,7 +108,7 @@ jobs:
       - name: Download embedding model for tests
         run: scripts/fetch-model.sh
       - name: Run cargo nextest tests
-        run: cargo nextest run --workspace --no-fail-fast --test-threads=1 ${{ matrix.features }}
+        run: cargo nextest run --workspace --no-fail-fast -j 1 ${{ matrix.features }}
 
   test-e2e:
     runs-on: ubuntu-latest
