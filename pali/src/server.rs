@@ -546,10 +546,6 @@ impl Drop for EditStageTiming {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Cancellation-shielded mutation units
-// ---------------------------------------------------------------------------
-
 /// Run a repository-write + index-mirror unit on a detached task so request
 /// cancellation can never separate a completed git commit from its index
 /// mirror dispatch (#310, ADR-0039).
@@ -597,10 +593,6 @@ where
         Err(e) => Err(MemoryError::Join(format!("mutation unit task failed: {e}"))),
     }
 }
-
-// ---------------------------------------------------------------------------
-// Incremental reindex helper
-// ---------------------------------------------------------------------------
 
 /// Whether splitting a failed batch into individual requests can isolate the
 /// failure.
@@ -662,7 +654,6 @@ async fn incremental_reindex(
         lexical.mark_rebuild_required("pulled changes contained unresolvable memory files");
     }
 
-    // ---- 1. Removals --------------------------------------------------------
     for mref in &changes.removed {
         let canonical = mref.qualified_path();
         lexical_ops.push(LexicalOp::Remove(canonical.clone()));
@@ -682,8 +673,6 @@ async fn incremental_reindex(
         // If not in index, remove is a no-op — not an error.
     }
 
-    // ---- 2. Read upserted memories from disk ---------------------------------
-    // (MemoryRef, content)
     let mut to_embed: Vec<(MemoryRef, String)> = Vec::new();
     for mref in &changes.upserted {
         let qualified = mref.qualified_path();
@@ -711,7 +700,6 @@ async fn incremental_reindex(
         to_embed.push((mref.clone(), memory.content));
     }
 
-    // ---- 2b. Mirror all changes into the lexical index ----------------------
     // One batch: a single commit and reader reload for the whole changed
     // set, on the blocking pool. Best-effort — a failure flags the index
     // degraded (semantic-only recall) and repair rebuilds from git truth.
@@ -732,7 +720,6 @@ async fn incremental_reindex(
         return stats;
     }
 
-    // ---- 3. Batch embed all content -----------------------------------------
     let contents: Vec<String> = to_embed.iter().map(|(_, c)| c.clone()).collect();
     let vectors = match embedding.embed(&contents).await {
         Ok(v) => v,
@@ -794,7 +781,6 @@ async fn incremental_reindex(
         }
     };
 
-    // ---- 4. Update index entries --------------------------------------------
     for ((mref, _), vector) in to_embed.iter().zip(vectors.iter()) {
         let qualified_name = mref.qualified_path();
         let is_update = index.find_by_name(&qualified_name).is_some();
@@ -1585,7 +1571,6 @@ impl MemoryServer {
                     }
                 };
 
-                // Read the memory; if it was deleted but still in the index, skip it.
                 let memory = match state.router.read_memory(&mref.name, &mref.scope).await {
                     Ok(m) => m,
                     Err(e) => {
@@ -1773,7 +1758,6 @@ impl MemoryServer {
             // Track whether content changed so we can skip re-embedding when only tags changed.
             let content_changed = args.content.is_some();
 
-            // Read the existing memory.
             timing.stage = "read";
             let stage_start = Instant::now();
             let read_result = state.router.read_memory(&name, &scope).await;
@@ -2235,7 +2219,6 @@ impl MemoryServer {
                 return Err(sync_failure_error(&sync_result, &branch));
             }
 
-            // Build pull status summary.
             let pull_status = if !pull_first {
                 "skipped".to_string()
             } else if sync_result.results.len() == 1 {
@@ -3097,10 +3080,6 @@ mod tests {
             );
         }
     }
-
-    // -----------------------------------------------------------------------
-    // Wire-contract tests — the recall result entry shape MCP clients see.
-    // -----------------------------------------------------------------------
 
     fn wire_test_memory() -> Memory {
         let metadata = MemoryMetadata::new(Scope::Root, vec!["tag-a".to_string()], None);
@@ -5065,11 +5044,6 @@ mod tests {
             assert_lexical_converges(&state, "moveword", &[qualified(&dest_scope, "wanderer")])
                 .await;
         }
-
-        // -------------------------------------------------------------------
-        // Sync fixture: bare origin + writer repo + server state over the
-        // same origin, so tests can author pulled changes.
-        // -------------------------------------------------------------------
 
         struct SyncFixture {
             _remote_dir: tempfile::TempDir,
