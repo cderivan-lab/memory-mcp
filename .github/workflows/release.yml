@@ -62,13 +62,8 @@ jobs:
             os: ubuntu-latest
             rust_targets: x86_64-unknown-linux-gnu
             assets: x86_64-unknown-linux-gnu
-          # arm64 leg, native on the spacelab runner registered with the
-          # `ubuntu-latest-arm64` label (infra/nomad/gitea.hcl, group
-          # runner-arm64). The label has to match exactly: this instance
-          # advertises no `self-hosted`, `linux`, or `arm64` label, and a label
-          # nothing advertises leaves the job queued forever.
           - target: aarch64-unknown-linux-gnu
-            os: ubuntu-latest-arm64
+            os: ubuntu-latest
             rust_targets: aarch64-unknown-linux-gnu
             assets: aarch64-unknown-linux-gnu
           # Windows excluded until usearch supports it (see #42).
