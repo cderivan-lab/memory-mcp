@@ -214,12 +214,9 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             cargo_target: ""
-          # arm64 leg, native on the spacelab runner (label ubuntu-latest-arm64
-          # in infra/nomad/gitea.hcl). Native means the smoke test executes the
-          # binary instead of only inspecting it with file(1).
           - target: aarch64-unknown-linux-gnu
-            os: ubuntu-latest-arm64
-            cargo_target: ""
+            os: ubuntu-latest
+            cargo_target: "--target aarch64-unknown-linux-gnu"
           - target: universal-apple-darwin
             os: macos-latest
             cargo_target: ""
@@ -238,10 +235,10 @@ jobs:
         with:
           key: ${{ matrix.target }}
           cache-bin: "false"
+      - name: Install cross-compilation toolchain for aarch64
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
       - run: cargo build --locked --release ${{ matrix.cargo_target }}
-      # Each matrix leg builds for its own architecture, so this runs the binary
-      # natively -- including aarch64, now that it builds on the spacelab runner
-      # rather than being cross-compiled on cosmos.
       - name: Smoke-test the binary
         run: ./target/release/pali --version
 
