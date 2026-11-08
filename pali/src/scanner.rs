@@ -423,7 +423,7 @@ fn scan_repository(
 ) -> Result<(), MemoryError> {
     let repo_path = options.root.as_path();
 
-    for relative in list_paths(repo, repo_path)? {
+    for relative in list_paths(repo)? {
         if relative.is_empty() {
             continue;
         }
@@ -586,11 +586,10 @@ fn commit_messages(repo: &git2::Repository) -> Vec<String> {
 
 /// Tracked files plus untracked files that `.gitignore` does not exclude.
 ///
-/// Tracked paths come from the index, which is the same source in both
-/// implementations. Untracked paths come from `gix` status, matching what
-/// `git status` reports; `gix_untracked_enumeration_matches_libgit2` pins that
-/// to libgit2's `WT_NEW` set.
-fn list_paths(repo: &git2::Repository, root: &Path) -> Result<BTreeSet<String>, MemoryError> {
+/// Tracked paths come from the index; untracked paths are libgit2's
+/// `WT_NEW` set (recursing into untracked directories), matching what
+/// `git status` reports.
+fn list_paths(repo: &git2::Repository) -> Result<BTreeSet<String>, MemoryError> {
     let mut paths = BTreeSet::new();
 
     for entry in repo.index()?.iter() {
@@ -599,7 +598,18 @@ fn list_paths(repo: &git2::Repository, root: &Path) -> Result<BTreeSet<String>, 
         }
     }
 
-    paths.extend(crate::git_read::untracked_files(root)?);
+    let mut status_options = git2::StatusOptions::new();
+    status_options
+        .include_untracked(true)
+        .recurse_untracked_dirs(true)
+        .include_ignored(false);
+    for status in repo.statuses(Some(&mut status_options))?.iter() {
+        if status.status().contains(git2::Status::WT_NEW)
+            && let Ok(path) = status.path()
+        {
+            paths.insert(path.to_string());
+        }
+    }
 
     Ok(paths)
 }
@@ -1431,45 +1441,33 @@ mod tests {
             "ordinary source has no findings"
         );
     }
-    /// The gix enumeration must report exactly what libgit2's `WT_NEW` set
-    /// reported before the port: untracked files, ignored files excluded, and
-    /// untracked directories expanded to the files inside them.
+    /// Untracked enumeration pins the git2 status semantics the scanner
+    /// relies on: untracked files are listed, ignored files are excluded, and
+    /// untracked directories are expanded to the files inside them.
     #[test]
-    fn gix_untracked_enumeration_matches_libgit2() {
+    fn untracked_enumeration_expands_dirs_and_skips_ignored() {
         let dir = tempfile::tempdir().expect("tempdir");
         let repo = repo_with(dir.path());
         fs::write(dir.path().join(".gitignore"), "ignored.txt\n").expect("write gitignore");
         fs::write(dir.path().join("tracked.txt"), "tracked\n").expect("write tracked");
         commit_all(dir.path(), "tracked baseline");
 
-        // Created after the commit, so both can only see them as untracked.
+        // Created after the commit, so they are untracked, not tracked.
         fs::write(dir.path().join("untracked.txt"), "new\n").expect("write untracked");
         fs::create_dir_all(dir.path().join("newdir")).expect("mkdir newdir");
         fs::write(dir.path().join("newdir/nested.txt"), "nested\n").expect("write nested");
         fs::write(dir.path().join("ignored.txt"), "ignored\n").expect("write ignored");
 
-        let mut options = git2::StatusOptions::new();
-        options
-            .include_untracked(true)
-            .recurse_untracked_dirs(true)
-            .include_ignored(false);
-        let libgit2: BTreeSet<String> = repo
-            .statuses(Some(&mut options))
-            .expect("statuses")
-            .iter()
-            .filter(|entry| entry.status().contains(git2::Status::WT_NEW))
-            .filter_map(|entry| entry.path().ok().map(str::to_string))
-            .collect();
+        let paths = list_paths(&repo).expect("list_paths");
 
-        let gix: BTreeSet<String> = crate::git_read::untracked_files(dir.path())
-            .expect("gix status")
-            .into_iter()
-            .collect();
-
-        assert_eq!(gix, libgit2, "gix status must match libgit2's WT_NEW set");
         assert_eq!(
-            gix,
-            BTreeSet::from(["newdir/nested.txt".to_string(), "untracked.txt".to_string()]),
+            paths,
+            BTreeSet::from([
+                ".gitignore".to_string(),
+                "newdir/nested.txt".to_string(),
+                "tracked.txt".to_string(),
+                "untracked.txt".to_string(),
+            ]),
             "ignored files stay out and untracked directories expand to their files"
         );
     }
