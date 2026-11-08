@@ -95,3 +95,18 @@ For a design decision where alternatives were seriously weighed, add an ADR in `
 
 The maintainer remains the merge latch. A green test run or an author's self-review is not merge authorization.
 
+## Session learnings — 2026-11-08 (pali git2/HF restructure)
+
+Durable facts and decisions from the `refactor/pali-git2-hf-restructure` session:
+
+- **git2 only** (no gix): ADR-0054 supersedes ADR-0053. Keep the server on a single git backend.
+- **Model download is server-owned**: the Rust server downloads the HuggingFace model; no model-download code in TypeScript. Model/embedder warmup runs via the `pali warmup` CLI subcommand.
+- **`test:e2e` compiles TypeScript first** (`compile:tests && vscode-test`). `npm run build:binary` builds the Rust binary only and does NOT recompile TS — a stale `out/` previously drove e2e results silently (root cause of the Mac "bundled path wins" e2e failure, fixed `af55163`). If e2e behavior contradicts the source, suspect a stale `out/` before suspecting the fix.
+- **`resolvePaliBinary` precedence**: explicitly configured `pali.path` (gated by `isExecutable`) → bundled `out/bin/pali` → PATH (default "pali" only) → globalStorage cache (HTML-login-page check) → missing. Do not reorder: the configured path must win over the bundled one.
+- **Rust tests stay inline** (`#[cfg(test)] mod tests` in source files) — explicit maintainer choice; do not move them to a separate test folder as part of the restructure.
+- **Comment policy**: keep crate/module `//!` docs, `///` on `pub` items, and only comments documenting non-obvious contracts, race windows, invariants, failure models, or ADR references. Remove narrative/trivial comments.
+- **KISS / net code reduction** is a binding constraint of the restructure: move-only restructuring, no new abstractions; fewer lines preferred.
+- **100% test coverage** is the final stage, to be reached after the module restructure completes — not before.
+- **Known test-gate quirk**: `hooks/test/*.test.mjs` use `node:test` but are loaded by mocha, so subtest failures print `✖` without failing the suite's exit code. `npm test` exiting 0 does not guarantee those subtests pass; check their output explicitly.
+- **Known gap (deferred)**: copilot-hooks work in the VS Code harness only; Copilot CLI hook events are not currently reached. Track separately after the restructure.
+
