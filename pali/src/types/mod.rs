@@ -6,11 +6,9 @@ mod memory;
 mod scope;
 mod validated;
 
-pub(crate) use args::ResolvedChanges;
 pub use args::{
-    AppState, BatchMarkAppliedArgs, ChangedMemories, EditArgs, ForgetArgs, ListArgs, ListField,
-    MarkAppliedArgs, MoveArgs, PullResult, ReadArgs, RecallArgs, RecallStatsArgs, ReindexStats,
-    RememberArgs, SyncArgs, Verdict, VerdictEntry,
+    BatchMarkAppliedArgs, EditArgs, ForgetArgs, ListArgs, ListField, MarkAppliedArgs, MoveArgs,
+    ReadArgs, RecallArgs, RecallStatsArgs, RememberArgs, SyncArgs, Verdict, VerdictEntry,
 };
 
 pub(crate) use args::{LIST_MAX_LIMIT, ListToolArgs, ListToolField, RecallToolArgs};

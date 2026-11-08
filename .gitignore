@@ -38,3 +38,4 @@ coverage/
 images/icon.png
 .sonarlint/connectedMode.json
 alembic.ini
+plans/untangle/__pycache__/depgraph.cpython-314.pyc

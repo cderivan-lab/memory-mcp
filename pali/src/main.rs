@@ -14,7 +14,8 @@ use pali::index::{UsearchStore, VectorStore};
 use pali::recall_log::RecallLog;
 use pali::repo::MemoryRepo;
 use pali::server::MemoryServer;
-use pali::types::{AppState, validate_branch_name};
+use pali::state::AppState;
+use pali::types::validate_branch_name;
 
 #[derive(Parser)]
 #[command(

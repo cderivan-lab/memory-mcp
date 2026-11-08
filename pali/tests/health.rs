@@ -77,10 +77,10 @@ mod health_registry_tests {
     #[test]
     fn test_health_registry_new() {
         let registry = HealthRegistry::new();
-        assert!(registry.git.load().healthy == false);
-        assert!(registry.embedding.load().healthy == false);
-        assert!(registry.vector_index.load().healthy == false);
-        assert!(registry.sync.load().healthy == false);
+        assert!(!registry.git.load().healthy);
+        assert!(!registry.embedding.load().healthy);
+        assert!(!registry.vector_index.load().healthy);
+        assert!(!registry.sync.load().healthy);
     }
 
     #[test]

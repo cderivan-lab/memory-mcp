@@ -8,7 +8,8 @@ use std::sync::Arc;
 #[cfg(unix)]
 use pali::error::MemoryError;
 use pali::repo::MemoryRepo;
-use pali::types::{Memory, MemoryMetadata, MemoryName, PullResult, Scope};
+use pali::repo::PullResult;
+use pali::types::{Memory, MemoryMetadata, MemoryName, Scope};
 
 /// Full round-trip: init repo → save memory → read it back → list → delete → pull.
 ///
