@@ -165,7 +165,7 @@
     "reinstall": "npm run pkguninstall & npm run pkginstall",
     "test:e2e": "vscode-test",
     "test:e2e:ui": "node scripts/e2e-ui-fixtures.mjs && node scripts/run-e2e-ui.mjs",
-    "test:coverage": "c8 mocha test/**/*.test.js test/**/*.test.mjs --options c8-node-options=http2 && cargo llvm-cov nextest",
+    "test:coverage": "c8 mocha test/**/*.test.js test/**/*.test.mjs --options c8-node-options=http2 && cargo llvm-cov nextest -j 1",
     "test:vsix": "mocha test/vsix.test.js",
     "test:hooks": "mocha hooks/test/**/*.test.mjs",
     "clean": "rm -rf out node_modules target pali-memory-*.vsix tsconfig.tsbuildinfo",
