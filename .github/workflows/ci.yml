@@ -24,14 +24,19 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4 # v7.0.0
+      # Needed on the self-hosted Gitea instance (internal CA); harmless on
+      # GitHub-hosted runners.
+      - uses: actions/checkout@v4
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config g++
-      - uses: dtolnay/rust-toolchain@stable # master (2026-03-27)
+      - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
+          # rustfmt/clippy are not in the minimal profile this action installs,
+          # so name them instead of relying on the runner image preinstalling
+          # them (GitHub images do; a bare rustup image does not).
           components: rustfmt
-      - uses: Swatinem/rust-cache@v2.9.2 # v2.9.1
+      - uses: Swatinem/rust-cache@v2.9.2
         with:
           cache-bin: "false"
       - name: cargo fmt --check
@@ -48,14 +53,16 @@ jobs:
         features:
           - ""
     steps:
-      - uses: actions/checkout@v4 # v7.0.0
+      # Needed on the self-hosted Gitea instance (internal CA); harmless on
+      # GitHub-hosted runners.
+      - uses: actions/checkout@v4
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config g++
-      - uses: dtolnay/rust-toolchain@stable # master (2026-03-27)
+      - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
           components: clippy
-      - uses: Swatinem/rust-cache@v2.9.2 # v2.9.1
+      - uses: Swatinem/rust-cache@v2.9.2
         with:
           key: clippy-${{ matrix.features }}
           cache-bin: "false"
@@ -71,13 +78,15 @@ jobs:
         features:
           - ""
     steps:
-      - uses: actions/checkout@v4 # v7.0.0
+      # Needed on the self-hosted Gitea instance (internal CA); harmless on
+      # GitHub-hosted runners.
+      - uses: actions/checkout@v4
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config g++
-      - uses: dtolnay/rust-toolchain@stable # master (2026-03-27)
+      - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-      - uses: Swatinem/rust-cache@v2.9.2 # v2.9.1
+      - uses: Swatinem/rust-cache@v2.9.2
         with:
           key: test-${{ matrix.features }}
           cache-bin: "false"
@@ -108,12 +117,19 @@ jobs:
       - name: Run cargo nextest tests
         run: cargo nextest run --workspace --no-fail-fast --test-threads=1 ${{ matrix.features }}
 
+  # End-to-end: the extension inside a real VS Code host, and a UI run that
+  # clicks the install notification (VS Code exposes no API for that, so it
+  # needs a real driver). Both open a window, hence xvfb. The two large
+  # downloads — VS Code for each runner and ChromeDriver for ExTester — are
+  # cached, so only a lockfile change re-downloads them.
   test-e2e:
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4 # v7.0.0
+      # Needed on the self-hosted Gitea instance (internal CA); harmless on
+      # GitHub-hosted runners.
+      - uses: actions/checkout@v4
       - name: Install a virtual display
         run: |
           sudo apt-get update
@@ -122,10 +138,10 @@ jobs:
       # job needs the same Rust toolchain and native dependencies as `test`.
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config g++
-      - uses: dtolnay/rust-toolchain@stable # master (2026-03-27)
+      - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-      - uses: Swatinem/rust-cache@v2.9.2 # v2.9.1
+      - uses: Swatinem/rust-cache@v2.9.2
         with:
           key: e2e
           cache-bin: "false"
@@ -133,7 +149,7 @@ jobs:
       # suite launches, `test-resources` holds ExTester's VS Code and
       # ChromeDriver. Bump the salt when the cached layout or the pinned
       # VS Code major changes.
-      - uses: actions/cache@v4 # v4
+      - uses: actions/cache@v4
         with:
           path: |
             .vscode-test
@@ -165,7 +181,7 @@ jobs:
           EOF
       - name: Notification click end-to-end
         run: xvfb-run -a npm run test:e2e:ui
-      - uses: actions/upload-artifact@v4 # v7.0.1
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
         with:
           name: e2e-failure-artifacts
@@ -174,12 +190,15 @@ jobs:
             test-resources/chromedriver.log
           retention-days: 3
 
+  # Package the extension the way a release does, so broken vsce packaging or a
+  # stale manifest fails on the PR instead of on the tag. No binary is staged
+  # here, so this VSIX is a packaging check rather than a shippable artifact.
   vsix:
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4 # v7.0.0
+      - uses: actions/checkout@v4
       - name: Install dependencies
         # `npm ci` pins the resolved tree, including the package.json overrides
         # that keep the dev-dependency tree off the audit report.
@@ -199,12 +218,15 @@ jobs:
             --out "$out"
           unzip -l "$out" | grep -F 'extension/out/extension.js' >/dev/null
           ls -l "$out"
-      - uses: actions/upload-artifact@v4 # v7.0.1
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: pali-memory-vsix
           path: "*.vsix"
           retention-days: 1
 
+  # Catch cross-platform compilation failures before they reach the release pipeline.
+  # Mirrors the release.yml publish-binaries matrix (minus Windows — see #42).
+  # Only runs on main-targeted PRs and pushes — stacked PRs skip this.
   cross-compile:
     if: github.event_name != 'pull_request' || github.base_ref == 'main'
     strategy:
@@ -214,9 +236,12 @@ jobs:
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             cargo_target: ""
+          # arm64 leg, native on the spacelab runner (label ubuntu-latest-arm64
+          # in infra/nomad/gitea.hcl). Native means the smoke test executes the
+          # binary instead of only inspecting it with file(1).
           - target: aarch64-unknown-linux-gnu
-            os: ubuntu-latest
-            cargo_target: "--target aarch64-unknown-linux-gnu"
+            os: ubuntu-latest-arm64
+            cargo_target: ""
           - target: universal-apple-darwin
             os: macos-latest
             cargo_target: ""
@@ -224,44 +249,48 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4 # v7.0.0
+      # Needed on the self-hosted Gitea instance (internal CA); harmless on
+      # GitHub-hosted runners.
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Install system dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config g++
-      - uses: dtolnay/rust-toolchain@stable # master (2026-03-27)
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master (2026-03-27)
         with:
           toolchain: stable
-      - uses: Swatinem/rust-cache@v2.9.2 # v2.9.1
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           key: ${{ matrix.target }}
           cache-bin: "false"
-      - name: Install cross-compilation toolchain for aarch64
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
       - run: cargo build --locked --release ${{ matrix.cargo_target }}
-      - name: Verify the binary
-        run: |
-          file ./target/release/pali
-          echo "Target: ${{ matrix.target }}"
+      - run: cargo build --locked --release ${{ matrix.cargo_target }}
+      # Each matrix leg builds for its own architecture, so this runs the binary
+      # natively -- including aarch64, now that it builds on the spacelab runner
+      # rather than being cross-compiled on cosmos.
+      - name: Smoke-test the binary
+        run: ./target/release/pali --version
 
   audit:
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4 # v7.0.0
-      - uses: dtolnay/rust-toolchain@stable # master (2026-03-27)
-        with:
-          toolchain: stable
-      - uses: EmbarkStudios/cargo-deny-action@v2.1.1 # v2.1.1
+      # Needed on the self-hosted Gitea instance (internal CA); harmless on
+      # GitHub-hosted runners.
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check
-          rust-version: stable
 
+  # Test coverage: Rust with llvm-cov (default + all-features), JS/TS with c8.
+  # Reports are generated in lcov format and uploaded as artifacts.
   coverage:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      # Needed for codecov/fellowship to upload coverage reports.
+      # Remove if not using a coverage reporter.
+      # id-token: write  # for codecov
     strategy:
       fail-fast: false
       matrix:
@@ -276,14 +305,14 @@ jobs:
             rust_features: ""
             js_tests: true
     steps:
-      - uses: actions/checkout@v4 # v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config g++
-      - uses: dtolnay/rust-toolchain@stable # master (2026-03-27)
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master (2026-03-27)
         with:
           toolchain: stable
           components: llvm-tools-preview
-      - uses: Swatinem/rust-cache@v2.9.2 # v2.9.1
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           key: coverage-${{ matrix.name }}
           cache-bin: "false"
@@ -332,8 +361,6 @@ jobs:
           echo "${sum}  /tmp/cargo-llvm-cov.tar.gz" | sha256sum -c -
           if [ "$(id -u)" -ne 0 ]; then S=sudo; else S=; fi
           $S tar xzf /tmp/cargo-llvm-cov.tar.gz -C /usr/local/bin
-      - name: Download embedding model for tests
-        run: scripts/fetch-model.sh
       - name: Run Rust tests with coverage
         if: matrix.js_tests != 'true'
         run: |
@@ -347,16 +374,13 @@ jobs:
           set -euo pipefail
           npm ci --ignore-scripts
           npm run build:binary
-      - name: Download embedding model for JS tests
-        if: matrix.js_tests == 'true'
-        run: scripts/fetch-model.sh
       - name: Run JS/TS tests with coverage
         if: matrix.js_tests == 'true'
         run: |
           set -euo pipefail
           npm run test:coverage
       - name: Upload coverage artifact
-        uses: actions/upload-artifact@v4 # v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: coverage-${{ matrix.name }}
           path: |
@@ -370,16 +394,17 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4 # v7.0.0
+      # Needed on the self-hosted Gitea instance (internal CA); harmless on
+      # GitHub-hosted runners.
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
-      - uses: dtolnay/rust-toolchain@stable # master (2026-03-27)
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master (2026-03-27)
         with:
           toolchain: stable
-      - uses: Swatinem/rust-cache@v2.9.2 # v2.9.1
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           key: semver
           cache-bin: "false"
-      - uses: obi1kenobi/cargo-semver-checks-action@v2.9 # v2.9
+      - uses: obi1kenobi/cargo-semver-checks-action@6b69fcf40e9b5fb17adeb57e4b6ecd020649a239 # v2.9
 
-# workflow refresh
