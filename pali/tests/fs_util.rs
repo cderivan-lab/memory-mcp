@@ -62,8 +62,10 @@ mod canonicalize_allow_missing_tests {
         // Path doesn't exist yet - this is the main use case
         let result = canonicalize_allow_missing(&path);
         println!("canonicalize nonexistent: {:?}", result);
-        // Clean up if any dirs were created
-        let _ = std::fs::remove_dir_all(&path.parent().unwrap_or(&path));
+        // Leaf-only cleanup: `path.parent()` is the shared system temp dir;
+        // deleting it destroys concurrent tests' tempdirs.
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_dir_all(&path);
     }
 
     #[test]
@@ -73,7 +75,8 @@ mod canonicalize_allow_missing_tests {
         let full_path = path.join("existing/../missing");
         let result = canonicalize_allow_missing(&full_path);
         println!("canonicalize dot-dots: {:?}", result);
-        let _ = std::fs::remove_dir_all(&path.parent().unwrap_or(&path));
+        // Leaf-only cleanup: `path.parent()` is the shared system temp dir.
+        let _ = std::fs::remove_dir_all(&path);
     }
 
     #[test]
