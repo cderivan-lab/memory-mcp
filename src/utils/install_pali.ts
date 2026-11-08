@@ -293,9 +293,10 @@ export function parseLfsPointer(text: string): LfsPointer | null {
 
 /**
  * Resolve the pali binary to use. Checks configured binPath (if explicit),
- * then PATH (only for default "pali"), then the globalStorage cache.
+ * then the bundled binary, then PATH (only for default "pali"), then the
+ * globalStorage cache.
  * Returns { path, source } where source is one of
- * 'configured', 'path', 'cache', or 'missing'.
+ * 'configured', 'bundled', 'path', 'cache', or 'missing'.
  */
 export interface ResolveResult {
   path: string | null;
@@ -316,13 +317,9 @@ export async function resolvePaliBinary(
   context: ResolveContext,
   config: ResolveConfig,
 ): Promise<ResolveResult> {
-  // 0. Binary built and staged with the extension itself.
-  if (context.bundledPath && (await isExecutable(context.bundledPath))) {
-    log.debug(`bundled binary ${context.bundledPath} is present and executable, using it`);
-    return { path: context.bundledPath, source: "bundled" };
-  }
-
-  // 1. Explicit binPath (not the default "pali")
+  // 0. Explicit binPath (not the default "pali"). An explicit setting is the
+  // user's (or a test's) deliberate choice and must win over any binary the
+  // build happened to stage into the extension directory.
   if (config.binPath && config.binPath !== "pali") {
     const resolved = path.isAbsolute(config.binPath)
       ? config.binPath
@@ -331,6 +328,12 @@ export async function resolvePaliBinary(
       return { path: resolved, source: "configured" };
     }
     // Fall through: explicit path was not executable
+  }
+
+  // 1. Binary built and staged with the extension itself.
+  if (context.bundledPath && (await isExecutable(context.bundledPath))) {
+    log.debug(`bundled binary ${context.bundledPath} is present and executable, using it`);
+    return { path: context.bundledPath, source: "bundled" };
   }
 
   // 2. Default "pali" - check PATH

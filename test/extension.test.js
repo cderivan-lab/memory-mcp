@@ -379,6 +379,35 @@ test("a bundled binary is preferred over PATH and the cache", async () => {
   }
 });
 
+// Regression: the bundled check used to run first, so a staged `out/bin/pali`
+// silently shadowed an explicit `pali.path` — the e2e settings profile
+// (which points `pali.path` at a stub) never reached the hooks on any machine
+// where the binary had been built into the extension directory.
+test("an explicit configured path beats the bundled binary", async () => {
+  const ctx = makeContext();
+  const extensionRoot = join(tmpdir(), `pali-test-bundle-${Date.now()}`);
+  const bundled = join(extensionRoot, "out", "bin", binaryName());
+  await mkdir(join(extensionRoot, "out", "bin"), { recursive: true });
+  await writeFile(bundled, "#!/bin/sh\necho hi\n", "utf8");
+  chmodSync(bundled, 0o755);
+  const configuredDir = join(tmpdir(), `pali-test-bin-${Date.now()}`);
+  const configured = join(configuredDir, binaryName());
+  await mkdir(configuredDir, { recursive: true });
+  await writeFile(configured, "#!/bin/sh\necho hi\n", "utf8");
+  chmodSync(configured, 0o755);
+  try {
+    const resolved = await require("../out/utils/lib").resolvePaliBinary(
+      { globalStoragePath: ctx.globalStoragePath, bundledPath: bundled },
+      { binPath: configured },
+    );
+    assert.equal(resolved.source, "configured");
+    assert.equal(resolved.path, configured);
+  } finally {
+    await rm(extensionRoot, { recursive: true, force: true });
+    await rm(configuredDir, { recursive: true, force: true });
+  }
+});
+
 test("releaseUrl defaults to the newest GitHub Enterprise release", () => {
   assert.equal(
     releaseUrl("aarch64-apple-darwin"),

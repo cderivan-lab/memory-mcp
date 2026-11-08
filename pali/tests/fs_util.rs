@@ -75,7 +75,8 @@ mod canonicalize_allow_missing_tests {
         let full_path = path.join("existing/../missing");
         let result = canonicalize_allow_missing(&full_path);
         println!("canonicalize dot-dots: {:?}", result);
-        // Leaf-only cleanup: `path.parent()` is the shared system temp dir.
+        // Leaf-only cleanup: `path.parent()` is the shared system temp dir;
+        // deleting it destroys concurrent tests' tempdirs.
         let _ = std::fs::remove_dir_all(&path);
     }
 
