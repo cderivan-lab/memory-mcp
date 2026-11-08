@@ -308,11 +308,17 @@ test("bootstrap summaries report the artifacts the run produced", () => {
 });
 
 test("getReleaseTarget maps supported platforms", () => {
+  // macOS: separate Intel and ARM architectures
   assert.equal(getReleaseTarget("darwin", "arm64"), "aarch64-apple-darwin");
   assert.equal(getReleaseTarget("darwin", "x64"), "x86_64-apple-darwin");
+  // Linux: both x64 and ARM64
   assert.equal(getReleaseTarget("linux", "x64"), "x86_64-unknown-linux-gnu");
+  assert.equal(getReleaseTarget("linux", "arm64"), "aarch64-unknown-linux-gnu");
+  // Windows: both x64 and ARM64
   assert.equal(getReleaseTarget("win32", "x64"), "x86_64-pc-windows-msvc");
-  assert.equal(getReleaseTarget("linux", "arm64"), null);
+  assert.equal(getReleaseTarget("win32", "arm64"), "aarch64-pc-windows-msvc");
+  // Unsupported: x86 (32-bit) is not built
+  assert.equal(getReleaseTarget("win32", "x86"), null);
 });
 
 function makeContext() {
@@ -393,13 +399,15 @@ test("releaseUrl defaults to the newest GitHub Enterprise release", () => {
 });
 
 test("releaseAssetName maps each target to the published asset", () => {
-  // macOS ships one universal archive used for both arm64 and x64.
+  // macOS ships separate archives for each architecture.
   assert.equal(releaseAssetName("aarch64-apple-darwin"), "aarch64-apple-darwin.zip");
-  assert.equal(releaseAssetName("x86_64-apple-darwin"), "aarch64-apple-darwin.zip");
+  assert.equal(releaseAssetName("x86_64-apple-darwin"), "x86_64-apple-darwin.zip");
   // Windows is a zip prefixed with the binary name.
   assert.equal(releaseAssetName("x86_64-pc-windows-msvc"), "pali.x86_64-pc-windows-msvc.zip");
-  // Linux x64 is a tarball.
+  assert.equal(releaseAssetName("aarch64-pc-windows-msvc"), "pali.aarch64-pc-windows-msvc.zip");
+  // Linux is a tarball.
   assert.equal(releaseAssetName("x86_64-unknown-linux-gnu"), "x86_64-unknown-linux-gnu.tgz");
+  assert.equal(releaseAssetName("aarch64-unknown-linux-gnu"), "aarch64-unknown-linux-gnu.tgz");
 });
 
 test("releaseUrl pins a version and keeps the archive layout", () => {

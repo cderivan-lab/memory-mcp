@@ -56,11 +56,14 @@ const MODEL_REF = "main";
 // same `pali.logLevel` setting that drives the server and the hooks.
 
 /** Map host platform/arch to a prebuilt release target, or null if unsupported. */
-export function getReleaseTarget(platform: string, arch: string): string | null {
+export function getReleaseTarget(platform: string, arch: string): string | null
+{
   if (platform === "darwin" && arch === "arm64") return "aarch64-apple-darwin";
   if (platform === "darwin" && arch === "x64") return "x86_64-apple-darwin";
   if (platform === "linux" && arch === "x64") return "x86_64-unknown-linux-gnu";
+  if (platform === "linux" && arch === "arm64") return "aarch64-unknown-linux-gnu";
   if (platform === "win32" && arch === "x64") return "x86_64-pc-windows-msvc";
+  if (platform === "win32" && arch === "arm64") return "aarch64-pc-windows-msvc";
   return null;
 }
 
@@ -101,13 +104,14 @@ export function binaryName(): string {
 }
 
 /**
- * Return the release asset name for a target. The published assets are not
- * uniform: macOS is a single universal `aarch64-apple-darwin.zip` (used for
- * both arm64 and x64), Windows is `pali.x86_64-pc-windows-msvc.zip`, and
- * Linux x64 is a tarball `x86_64-unknown-linux-gnu.tgz`.
+ * Return the release asset name for a target. The published assets are:
+ * - macOS: separate `x86_64-apple-darwin.zip` and `aarch64-apple-darwin.zip`
+ * - Windows: `pali.x86_64-pc-windows-msvc.zip` or `pali.aarch64-pc-windows-msvc.zip`
+ * - Linux x64: tarball `x86_64-unknown-linux-gnu.tgz`
+ * - Linux aarch64: tarball `aarch64-unknown-linux-gnu.tgz`
  */
 export function releaseAssetName(target: string): string {
-  if (target.includes("apple-darwin")) return "aarch64-apple-darwin.zip";
+  if (target.includes("apple-darwin")) return `${target}.zip`;
   if (target.includes("windows")) return `pali.${target}.zip`;
   return `${target}.tgz`;
 }

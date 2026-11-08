@@ -107,7 +107,8 @@ jobs:
           $S tar xzf /tmp/cargo-nextest.tar.gz -C /usr/local/bin
       - name: Download embedding model for tests
         run: scripts/fetch-model.sh
-      - run: cargo nextest run --workspace --no-fail-fast ${{ matrix.features }}
+      - name: Run cargo nextest tests
+        run: cargo nextest run --workspace --no-fail-fast --test-threads=1 ${{ matrix.features }}
 
   test-e2e:
     runs-on: ubuntu-latest
@@ -231,7 +232,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Install system dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config g++
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master (2026-03-27)
         with:
           toolchain: stable
@@ -280,7 +281,7 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config g++
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9 # master (2026-03-27)
         with:
           toolchain: stable
