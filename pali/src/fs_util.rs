@@ -460,6 +460,10 @@ mod tests {
         );
     }
 
+    // Unix-only: the climb is measured against `/`. On Windows a hard-coded
+    // `/...` path is not absolute (no drive), and `..` clamps at the drive
+    // root rather than erroring, so the invariant does not apply there.
+    #[cfg(unix)]
     #[test]
     fn canonicalize_allow_missing_rejects_dot_dot_above_root() {
         // Enough `..` in a missing suffix to climb above `/` cannot name any

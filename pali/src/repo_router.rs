@@ -1172,7 +1172,8 @@ mod tests {
     async fn seeded_remote(seed_name: &str) -> (tempfile::TempDir, String) {
         let remote_dir = tempfile::tempdir().unwrap();
         git2::Repository::init_bare(remote_dir.path()).unwrap();
-        let url = format!("file://{}", remote_dir.path().display());
+        // Forward slashes are required for a `file://` URL on Windows.
+        let url = format!("file:///{}", remote_dir.path().display().to_string().replace('\\', "/"));
         let writer_dir = tempfile::tempdir().unwrap();
         let writer = Arc::new(MemoryRepo::init_or_open(writer_dir.path(), Some(&url)).unwrap());
         writer.save_memory(&memory_at("", seed_name)).await.unwrap();

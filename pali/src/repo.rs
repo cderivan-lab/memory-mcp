@@ -1562,7 +1562,10 @@ mod tests {
     fn setup_bare_remote() -> (tempfile::TempDir, String) {
         let dir = tempfile::tempdir().expect("failed to create temp dir");
         git2::Repository::init_bare(dir.path()).expect("failed to init bare repo");
-        let url = format!("file://{}", dir.path().display());
+        // `display()` yields backslashes on Windows; a `file://` URL needs
+        // forward slashes (and a third slash for the drive), so libgit2 can
+        // resolve the local bare-remote path.
+        let url = format!("file:///{}", dir.path().display().to_string().replace('\\', "/"));
         (dir, url)
     }
 
@@ -3179,30 +3182,49 @@ mod failure_path_tests {
 // Regression guard: ed25519 SSH auth on Windows requires the OpenSSL
 // backend. Without `libssh2-sys/openssl-on-win32`, libssh2 uses WinCNG on
 // Windows, which lacks ed25519 support and causes auth failures.
+//
 // `libssh2-sys`'s build script does not emit a `cargo:rustc-cfg` for the
-// backend choice, so the guard asserts the observable consequence instead:
-// the OpenSSL branch links the vendored static `ssl`/`crypto` (and
-// `advapi32`) libraries, while the WinCNG branch links none of them.
+// backend choice, so the guard asserts the observable consequence: the
+// OpenSSL branch links the vendored static `ssl`/`crypto` (and `advapi32`)
+// libraries, while the WinCNG branch links none of them. The build output
+// lives in `<profile>/build/libssh2-sys-*/output`, located relative to the
+// test executable (which sits in `<profile>/deps`).
 #[cfg(windows)]
 #[test]
 fn ssh_uses_openssl_backend_on_windows() {
-    let output = std::env::var_os("OUT_DIR").expect("test runs with OUT_DIR set");
-    let build_dir = Path::new(&output)
+    let exe = std::env::current_exe().expect("test runs with a current exe");
+    // <profile>/deps/pali-<hash>.exe -> <profile>/build
+    let build_root = exe
         .parent()
-        .expect("OUT_DIR is <target>/build/<pkg>-<hash>/out");
-    let manifest = std::fs::read_to_string(build_dir.join("out_dir")).expect("out_dir file");
-    let manifest_path = Path::new(manifest.trim());
-    let output =
-        std::fs::read_to_string(manifest_path.join("output")).expect("libssh2-sys build output");
-    for directive in [
+        .and_then(|p| p.parent())
+        .expect("exe is in <profile>/deps")
+        .join("build");
+    // The build dir can hold several `libssh2-sys` variants (one per feature
+    // combination); the one the binary actually links is the OpenSSL build, so
+    // at least one output must carry the directives.
+    let outputs = std::fs::read_dir(&build_root)
+        .expect("read <profile>/build")
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_name().to_string_lossy().starts_with("libssh2-sys-"))
+        .filter_map(|e| std::fs::read_to_string(e.path().join("output")).ok())
+        .collect::<Vec<_>>();
+    assert!(
+        !outputs.is_empty(),
+        "no libssh2-sys build output found under {build_root:?}"
+    );
+    let directives = [
         "cargo:rustc-link-lib=static=libssl",
         "cargo:rustc-link-lib=static=libcrypto",
         "cargo:rustc-link-lib=advapi32",
-    ] {
-        assert!(
-            output.lines().any(|line| line.trim() == directive),
-            "libssh2-sys must be built with the OpenSSL backend (openssl-on-win32); \
-             missing `{directive}` in its build output"
-        );
-    }
+    ];
+    let has_openssl = outputs.iter().any(|output| {
+        directives
+            .iter()
+            .all(|d| output.lines().any(|line| line.trim() == *d))
+    });
+    assert!(
+        has_openssl,
+        "no libssh2-sys build output links the OpenSSL backend \
+         (openssl-on-win32); ed25519 SSH auth would fall back to WinCNG"
+    );
 }
