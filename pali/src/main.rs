@@ -400,11 +400,11 @@ async fn run_serve(args: ServeArgs) -> anyhow::Result<()> {
     // Remove legacy single-index files if they still exist from an old install.
     let old_index = index_dir.join("index.usearch");
     if old_index.exists() {
-        if let Err(e) = std::fs::remove_file(&old_index) {
+        if let Err(e) = tokio::fs::remove_file(&old_index).await {
             tracing::warn!(error = %e, "failed to remove legacy index file");
         }
         let keys_file = index_dir.join("index.usearch.keys.json");
-        if let Err(e) = std::fs::remove_file(&keys_file)
+        if let Err(e) = tokio::fs::remove_file(&keys_file).await
             && e.kind() != std::io::ErrorKind::NotFound
         {
             tracing::warn!(error = %e, "failed to remove legacy index keys file");

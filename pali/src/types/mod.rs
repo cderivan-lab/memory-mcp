@@ -6,6 +6,13 @@ mod memory;
 mod scope;
 mod validated;
 
+// Compatibility re-exports: these domain types moved to their owning modules
+// (git outcomes live with the repo, composition state lives in `state`) but
+// remain available on `pali::types` for existing in-crate consumers (binary,
+// tests).
+pub use crate::repo::{ChangedMemories, PullResult};
+pub use crate::state::{AppState, ReindexStats};
+
 pub use args::{
     BatchMarkAppliedArgs, EditArgs, ForgetArgs, ListArgs, ListField, MarkAppliedArgs, MoveArgs,
     ReadArgs, RecallArgs, RecallStatsArgs, RememberArgs, SyncArgs, Verdict, VerdictEntry,
