@@ -7,7 +7,11 @@ description = "Pali — semantic memory server for AI agents. Pure-Rust embeddin
 repository = "https://github.com/cderivan/memory-mcp"
 homepage = "https://github.com/cderivan/memory-mcp"
 keywords = ["mcp", "memory", "embeddings", "semantic-search", "pali"]
-categories = ["command-line-utilities", "artificial-intelligence", "text-processing"]
+categories = [
+  "command-line-utilities",
+  "artificial-intelligence",
+  "text-processing",
+]
 rust-version = "1.99"
 # The crate ships inside the VS Code extension; it is not published to a
 # registry, so `cargo publish` must stay impossible by accident.
@@ -47,7 +51,10 @@ candle-transformers = "0.11"
 
 # Pure-Rust YAML parsing; avoids unsafe-libyaml in memory frontmatter.
 serde-saphyr = "2.0.0"
-chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+chrono = { version = "0.4", default-features = false, features = [
+  "clock",
+  "serde",
+] }
 thiserror = "2"
 anyhow = "1"
 tracing = "0.1"
@@ -61,7 +68,10 @@ libz-sys = { version = "1", features = ["static"] }
 
 # HuggingFace Hub client for automatic model download on cache miss.
 # Uses ureq and blocking features for lightweight, headless downloading.
-hf-hub = { version = "1.0.0", default-features = false, features = ["rustls-tls", "blocking"] }
+hf-hub = { version = "1.0.0", default-features = false, features = [
+  "rustls-tls",
+  "blocking",
+] }
 # Disable defaults to drop onig (C regex library); fancy-regex is a pure-Rust
 # drop-in. esaxx_fast is deliberately off: its C++ builder (esaxx-rs) unconditionally
 # compiles with the static CRT (/MT), which conflicts with the dynamic CRT (/MD)
@@ -91,4 +101,3 @@ proptest = "1"
 tempfile = "3"
 tokio = { version = "1", features = ["test-util"] }
 async-trait = "0.1"
-

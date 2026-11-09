@@ -11,3 +11,7 @@ resolver = "3"
 strip = true
 lto = true
 codegen-units = 1
+
+[package.metadata.sonar]
+project-key = "memory-mcp"
+exclusions = ["target/**"]
