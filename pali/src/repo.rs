@@ -42,9 +42,7 @@ fn capture_head_oid(repo: &git2::Repository) -> Result<[u8; 20], MemoryError> {
             Ok(buf)
         }
         // Unborn branch — use zero OID as sentinel.
-        Err(e) if e.code() == ErrorCode::UnbornBranch || e.code() == ErrorCode::NotFound => {
-            Ok([0u8; 20])
-        }
+        Err(e) if is_unborn(&e) => Ok([0u8; 20]),
         Err(e) => Err(MemoryError::Git(e)),
     }
 }
@@ -361,6 +359,33 @@ struct TreeChange {
     new_blob: Option<Vec<u8>>,
 }
 
+/// Which side of a two-commit diff a change is read from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Side {
+    /// The older tree (the removal side).
+    Old,
+    /// The newer tree (the upsert side).
+    New,
+}
+
+impl TreeChange {
+    /// The side(s) of the diff this change touches, in resolve order.
+    ///
+    /// `Added | Modified` touch only the new side; `Removed` only the old
+    /// side; `TypeChanged` both, old side first (a removal then an upsert),
+    /// mirroring what a separate delete and add would produce.
+    fn sides(&self) -> &'static [Side] {
+        const BOTH: &[Side] = &[Side::Old, Side::New];
+        const OLD: &[Side] = &[Side::Old];
+        const NEW: &[Side] = &[Side::New];
+        match self.kind {
+            ChangeKind::Added | ChangeKind::Modified => NEW,
+            ChangeKind::Removed => OLD,
+            ChangeKind::TypeChanged => BOTH,
+        }
+    }
+}
+
 /// Compare the trees of two commits and return the memory files that changed.
 ///
 /// `old_oid` may be `[0u8; 20]` for an unborn branch, in which case every file
@@ -563,6 +588,31 @@ fn object_content(repo: &git2::Repository, id: git2::Oid) -> Result<Option<Vec<u
     })
 }
 
+/// True when `repo.head()` (or a similar ref lookup) fails because there is
+/// no commit to point at: an unborn branch, or a missing `HEAD`/ref. Callers
+/// treat both the same — no history yet — so the distinction is elided here
+/// rather than matched at every site.
+fn is_unborn(e: &git2::Error) -> bool {
+    e.code() == ErrorCode::UnbornBranch || e.code() == ErrorCode::NotFound
+}
+
+/// Reports the outcome of a completed operation to a subsystem reporter:
+/// `Ok` means the subsystem worked, `Err` means it failed with `reason`.
+///
+/// Callers with a richer notion of success (e.g. treating `NotFound` as a
+/// healthy lookup miss) must not use this.
+fn settle_reporter<T>(
+    reporter: &SubsystemReporter,
+    result: &Result<T, MemoryError>,
+    reason: &'static str,
+) {
+    if result.is_ok() {
+        reporter.report_ok();
+    } else {
+        reporter.report_err(reason);
+    }
+}
+
 /// True for `.md` files inside the namespace directories the store owns.
 fn is_memory_path(path: &str) -> bool {
     path.ends_with(".md")
@@ -728,10 +778,7 @@ impl MemoryRepo {
         .await
         .map_err(|e| MemoryError::Join(e.to_string()))?;
 
-        match &result {
-            Ok(_) => self.reporter.report_ok(),
-            Err(_) => self.reporter.report_err("save_memory failed"),
-        }
+        settle_reporter(&self.reporter, &result, "save_memory failed");
         result
     }
 
@@ -777,10 +824,7 @@ impl MemoryRepo {
         .await
         .map_err(|e| MemoryError::Join(e.to_string()))?;
 
-        match &result {
-            Ok(_) => self.reporter.report_ok(),
-            Err(_) => self.reporter.report_err("delete_memory failed"),
-        }
+        settle_reporter(&self.reporter, &result, "delete_memory failed");
         result
     }
 
@@ -883,10 +927,7 @@ impl MemoryRepo {
         .await
         .map_err(|e| MemoryError::Join(e.to_string()))?;
 
-        match &result {
-            Ok(_) => self.reporter.report_ok(),
-            Err(_) => self.reporter.report_err("move_memory failed"),
-        }
+        settle_reporter(&self.reporter, &result, "move_memory failed");
         result
     }
 
@@ -999,10 +1040,7 @@ impl MemoryRepo {
             }
         ).await.map_err(|e| MemoryError::Join(e.to_string()))?;
 
-        match &result {
-            Ok(_) => self.reporter.report_ok(),
-            Err(_) => self.reporter.report_err("list_memories failed"),
-        }
+        settle_reporter(&self.reporter, &result, "list_memories failed");
         result
     }
 
@@ -1069,10 +1107,7 @@ impl MemoryRepo {
         .await
         .map_err(|e| MemoryError::Join(e.to_string()))?;
 
-        match &result {
-            Ok(_) => self.sync_reporter.report_ok(),
-            Err(_) => self.sync_reporter.report_err("push failed"),
-        }
+        settle_reporter(&self.sync_reporter, &result, "push failed");
         result
     }
 
@@ -1226,10 +1261,7 @@ impl MemoryRepo {
         .await
         .map_err(|e| MemoryError::Join(e.to_string()))?;
 
-        match &result {
-            Ok(_) => self.sync_reporter.report_ok(),
-            Err(_) => self.sync_reporter.report_err("pull failed"),
-        }
+        settle_reporter(&self.sync_reporter, &result, "pull failed");
         result
     }
 
@@ -1261,12 +1293,10 @@ impl MemoryRepo {
             let Some(qualified) = change.path.strip_suffix(".md").map(str::to_string) else {
                 continue;
             };
-            match change.kind {
-                ChangeKind::Added | ChangeKind::Modified => changes.upserted.push(qualified),
-                ChangeKind::Removed => changes.removed.push(qualified),
-                ChangeKind::TypeChanged => {
-                    changes.removed.push(qualified.clone());
-                    changes.upserted.push(qualified);
+            for side in change.sides() {
+                match side {
+                    Side::New => changes.upserted.push(qualified.clone()),
+                    Side::Old => changes.removed.push(qualified.clone()),
                 }
             }
         }
@@ -1300,37 +1330,12 @@ impl MemoryRepo {
     ) -> Result<ResolvedChanges, MemoryError> {
         let mut changes = ResolvedChanges::default();
         for change in changed_files(&self.root, old_oid, new_oid)? {
-            match change.kind {
-                ChangeKind::Added | ChangeKind::Modified => {
-                    self.resolve_change(
-                        &mut changes,
-                        change.new_blob.as_deref(),
-                        &change.path,
-                        true,
-                    );
-                }
-                ChangeKind::Removed => {
-                    self.resolve_change(
-                        &mut changes,
-                        change.old_blob.as_deref(),
-                        &change.path,
-                        false,
-                    );
-                }
-                ChangeKind::TypeChanged => {
-                    self.resolve_change(
-                        &mut changes,
-                        change.old_blob.as_deref(),
-                        &change.path,
-                        false,
-                    );
-                    self.resolve_change(
-                        &mut changes,
-                        change.new_blob.as_deref(),
-                        &change.path,
-                        true,
-                    );
-                }
+            for side in change.sides() {
+                let (blob, upsert) = match side {
+                    Side::Old => (change.old_blob.as_deref(), false),
+                    Side::New => (change.new_blob.as_deref(), true),
+                };
+                self.resolve_change(&mut changes, blob, &change.path, upsert);
             }
         }
         Ok(changes)
@@ -1574,7 +1579,7 @@ impl MemoryRepo {
                 let tree = head.peel_to_tree()?;
                 index.read_tree(&tree)?;
             }
-            Err(e) if e.code() == ErrorCode::UnbornBranch || e.code() == ErrorCode::NotFound => {
+            Err(e) if is_unborn(&e) => {
                 // No tree to read. `init_or_open` always makes a first
                 // commit, so the reachable case is a branch ref removed
                 // from outside, not a fresh repo. Clearing here would make
@@ -1607,7 +1612,7 @@ impl MemoryRepo {
                 let parent_commit = head.peel_to_commit()?;
                 repo.commit(Some("HEAD"), &sig, &sig, message, &tree, &[&parent_commit])?
             }
-            Err(e) if e.code() == ErrorCode::UnbornBranch || e.code() == ErrorCode::NotFound => {
+            Err(e) if is_unborn(&e) => {
                 repo.commit(Some("HEAD"), &sig, &sig, message, &tree, &[])?
             }
             Err(e) => {
