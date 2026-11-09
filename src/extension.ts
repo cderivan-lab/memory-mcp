@@ -137,8 +137,8 @@ async function installHooks(
   let current = '';
   try {
     current = fs.readFileSync(target, 'utf8');
-  } catch(error) {
-      log.error(`Pali: could not read hook config: ${(error as Error).message}`);
+  } catch (error) {
+    log.error(`Pali: could not read hook config: ${(error as Error).message}`);
   }
   if (current === body) return true;
 
@@ -382,7 +382,7 @@ function activate(context: vscode.ExtensionContext): void {
         if (!resolved.path) {
           output.appendLine(
             'MCP server not started: the pali binary was not found. ' +
-              'Run "Pali: Install pali", then restart the server.',
+            'Run "Pali: Install pali", then restart the server.',
           );
           return [];
         }
@@ -395,8 +395,8 @@ function activate(context: vscode.ExtensionContext): void {
         );
         output.appendLine(
           `MCP server definition: ${definition.command} ${definition.args.join(' ')}` +
-            (definition.env.PALI_GIT_TOKEN ? ' (HTTPS token configured)' : '') +
-            (definition.env.PALI_MODEL_DIR ? ` (model: ${definition.env.PALI_MODEL_DIR})` : ''),
+          (definition.env.PALI_GIT_TOKEN ? ' (HTTPS token configured)' : '') +
+          (definition.env.PALI_MODEL_DIR ? ` (model: ${definition.env.PALI_MODEL_DIR})` : ''),
         );
         return [
           new vscode.McpStdioServerDefinition(
@@ -482,6 +482,8 @@ function activate(context: vscode.ExtensionContext): void {
     });
 }
 
-function deactivate(): void {}
+function deactivate(): void {
+  log.info('extension deactivated');
+}
 
 export { activate, deactivate };
