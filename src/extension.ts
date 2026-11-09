@@ -464,7 +464,7 @@ function activate(context: vscode.ExtensionContext): void {
     context.extensionPath,
     async () => (await context.secrets.get(TOKEN_KEY)) ?? null,
   )
-    .then((status) => {
+    .then(async (status) => {
       if (!status.paliPath) {
         output.appendLine('pali: binary not found; awaiting user action');
         return;
@@ -474,7 +474,7 @@ function activate(context: vscode.ExtensionContext): void {
       // with the extension version, so it is re-resolved on every activation
       // instead of being written into settings.
       if (status.source !== 'bundled') {
-        updateBinPathSetting(status.paliPath, serverChanged, output);
+        await updateBinPathSetting(status.paliPath, serverChanged, output);
       }
     })
     .catch((error) => {
