@@ -12,7 +12,7 @@
     },
     "markdown.validate.enabled": true,
     "sonarlint.connectedMode.project": {
-        "connectionId": "cderivan",
-        "projectKey": "cderivan_memory-mcp"
+        "connectionId": "http-sonar-cderivan-net-9300",
+        "projectKey": "memory-mcp"
     }
 }
