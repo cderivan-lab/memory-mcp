@@ -1374,7 +1374,7 @@ pub async fn persist_index_on_shutdown(
     state: &AppState,
     index_dir: &std::path::Path,
 ) -> Result<(), MemoryError> {
-    std::fs::create_dir_all(index_dir)?;
+    tokio::fs::create_dir_all(index_dir).await?;
     if state.index_mirror_is_intact() {
         if let Some(sha) = state.router.head_sha().await {
             state.index.set_commit_sha(Some(&sha));
