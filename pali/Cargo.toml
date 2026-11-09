@@ -101,3 +101,8 @@ proptest = "1"
 tempfile = "3"
 tokio = { version = "1", features = ["test-util"] }
 async-trait = "0.1"
+
+
+[package.metadata.sonar]
+project-key = "memory-mcp"
+exclusions = ["target/**", ".vscode-test/**"]
