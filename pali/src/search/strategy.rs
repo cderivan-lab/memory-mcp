@@ -17,7 +17,7 @@ use super::{
 };
 use crate::{
     embedding::EmbeddingBackend, error::MemoryError, index::VectorStore,
-    repo::traced_spawn_blocking, types::ScopeFilter,
+    spawn::traced_spawn_blocking, types::ScopeFilter,
 };
 
 /// A way of ranking memories for a recall query.

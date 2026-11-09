@@ -576,7 +576,7 @@ impl UsearchStore {
         };
 
         // Load global/root index.
-        let global_path = dir.join("global").join("index.usearch");
+        let global_path = dir.join(Scope::ROOT_DIR).join("index.usearch");
         let global = if global_path.exists() {
             VectorIndex::load(&global_path)?
         } else {
@@ -585,7 +585,7 @@ impl UsearchStore {
         let mut registry = ScopeRegistry::new(global);
 
         // Scan for namespace indexes under projects/*/ (may be nested).
-        let projects_dir = dir.join("projects");
+        let projects_dir = dir.join(Scope::PROJECTS_DIR);
         if projects_dir.is_dir() {
             load_namespace_indexes(&projects_dir, &projects_dir, &mut registry)?;
         }

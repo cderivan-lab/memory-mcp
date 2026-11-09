@@ -30,6 +30,8 @@ pub mod scanner;
 pub mod search;
 /// MCP server implementation — tool handlers for the memory protocol.
 pub mod server;
+/// Blocking-task spawning with tracing context propagation.
+pub(crate) mod spawn;
 /// Shared application state and reindex statistics.
 pub mod state;
 /// Test-only tracing capture helpers shared across unit-test modules.

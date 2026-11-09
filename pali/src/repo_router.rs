@@ -527,7 +527,7 @@ impl RepoRouter {
                             let repo_clone = Arc::clone(repo);
                             let oh = *oh;
                             let nh = *nh;
-                            match crate::repo::traced_spawn_blocking(move || {
+                            match crate::spawn::traced_spawn_blocking(move || {
                                 let changes = repo_clone.diff_changed_memories(oh, nh)?;
                                 let resolved = repo_clone.diff_changed_refs(oh, nh)?;
                                 Ok::<_, MemoryError>((changes, resolved))
@@ -719,11 +719,6 @@ impl RepoRouter {
     /// Return a reference to the repo for a given scope (for direct access when needed).
     pub fn repo(&self, scope: &Scope) -> &Arc<MemoryRepo> {
         self.repo_for_scope(scope)
-    }
-
-    /// Check if there are any scope-specific routes configured.
-    pub fn has_routes(&self) -> bool {
-        !self.routes.is_empty()
     }
 }
 

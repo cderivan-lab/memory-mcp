@@ -183,14 +183,23 @@ impl From<Scope> for ScopeWire {
 }
 
 impl Scope {
+    /// Repository directory holding root-scope (global) memory files.
+    pub const ROOT_DIR: &'static str = "global";
+    /// Repository directory containing one subdirectory per path-scoped memory store.
+    pub const PROJECTS_DIR: &'static str = "projects";
+    /// Trailing-slash form of [`Scope::ROOT_DIR`] for path-prefix checks.
+    pub const ROOT_PREFIX: &'static str = "global/";
+    /// Trailing-slash form of [`Scope::PROJECTS_DIR`] for path-prefix checks.
+    pub const PROJECTS_PREFIX: &'static str = "projects/";
+
     /// Directory prefix inside the repo root.
     ///
     /// Returns a `Cow<'static, str>` so `Root` avoids allocation while
     /// `Path` variants produce an owned string.
     pub fn dir_prefix(&self) -> Cow<'static, str> {
         match self {
-            Scope::Root => Cow::Borrowed("global"),
-            Scope::Path(sp) => Cow::Owned(format!("projects/{}", sp.as_str())),
+            Scope::Root => Cow::Borrowed(Self::ROOT_DIR),
+            Scope::Path(sp) => Cow::Owned(format!("{}/{}", Self::PROJECTS_DIR, sp.as_str())),
         }
     }
 }

@@ -441,11 +441,11 @@ pub fn parse_qualified_name(qualified: &str) -> Result<MemoryRef, MemoryError> {
     // WARNING: This branch is ambiguous for multi-segment scopes. See the
     // function-level doc comment for details. The canonical "v1:scope=...;name=..."
     // form should be preferred for all new entries.
-    if let Some(rest) = qualified.strip_prefix("global/") {
+    if let Some(rest) = qualified.strip_prefix(Scope::ROOT_PREFIX) {
         let name = MemoryName::new(rest)?;
         return Ok(MemoryRef::new(Scope::Root, name));
     }
-    if let Some(rest) = qualified.strip_prefix("projects/") {
+    if let Some(rest) = qualified.strip_prefix(Scope::PROJECTS_PREFIX) {
         // rest = "<scope-path>/<memory_name>"
         // The scope is always the first path segment after "projects/"; the
         // memory name is everything after that first slash.  This mirrors the

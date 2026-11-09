@@ -32,12 +32,13 @@ use crate::{
     error::MemoryError,
     index::VectorStore,
     recall_log::{BatchVerdict, RecallLog, RecallResult},
-    repo::{MemoryRepo, PullResult, ResolvedChanges, traced_spawn_blocking},
+    repo::{MemoryRepo, PullResult, ResolvedChanges},
     repo_router::{MultiSyncResult, RepoRouter, ScopeListing},
     search::{
         CandidateAllowList, FusedHit, LexicalDoc, LexicalIndex, LexicalOp, bm25::DegradeOnDrop,
         hybrid_search_within, spawn_lexical_repair_for_router,
     },
+    spawn::traced_spawn_blocking,
     state::{AppState, ReindexStats},
     types::{
         BatchMarkAppliedArgs, EditArgs, ForgetArgs, LIST_MAX_LIMIT, ListToolArgs, ListToolField,
@@ -54,6 +55,58 @@ struct OwnedBatchVerdict {
     verdict: String,
     application_note: Option<String>,
     confidence: String,
+}
+
+/// Parse an optional scope argument, mapping parse failures to a tool error.
+fn parse_scope(scope: Option<&str>) -> Result<Scope, ErrorData> {
+    Scope::parse_or_default(scope).map_err(ErrorData::from)
+}
+
+/// Reject content over [`MAX_CONTENT_SIZE`] before any I/O starts.
+fn check_content_size(content: &str) -> Result<(), ErrorData> {
+    if content.len() > MAX_CONTENT_SIZE {
+        return Err(ErrorData::from(MemoryError::InvalidInput {
+            reason: format!(
+                "content size {} exceeds maximum of {} bytes",
+                content.len(),
+                MAX_CONTENT_SIZE
+            ),
+        }));
+    }
+    Ok(())
+}
+
+/// Best-effort lexical-index mirror shared by the mutation handlers.
+///
+/// A failure degrades keyword search but never fails the mutation: the git
+/// commit is already durable, and [`spawn_lexical_repair_for_router`] rebuilds
+/// the index from repo truth.
+async fn mirror_lexical_best_effort(
+    unit_state: &Arc<AppState>,
+    ops: Vec<LexicalOp>,
+    op: &str,
+    name: &str,
+    new_name: Option<&str>,
+) {
+    if let Err(e) = unit_state.lexical.apply_async(ops).await {
+        if let Some(new_name) = new_name {
+            warn!(
+                name,
+                new_name,
+                error = %e,
+                "lexical index update failed during {op}; keyword search \
+                 degraded until repair completes"
+            );
+        } else {
+            warn!(
+                name,
+                error = %e,
+                "lexical index update failed during {op}; keyword search \
+                 degraded until repair completes"
+            );
+        }
+        spawn_lexical_repair_for_router(&unit_state.router, &unit_state.lexical);
+    }
 }
 
 /// MCP server implementation.
@@ -625,6 +678,82 @@ fn fallback_failure_stops_retries(error: &MemoryError) -> bool {
     )
 }
 
+/// Why `embed_with_fallback` stopped embedding before the last input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EmbedStop {
+    /// The whole batch failed on an unsplittable error; nothing was embedded.
+    Batch,
+    /// A per-item fallback hit a systemic error; `first_failed` onward is unembedded.
+    Fallback(usize),
+}
+
+/// Embed a batch, falling back to per-item embeds when the batch call fails
+/// on a splittable error (`batch_failure_can_split`).
+///
+/// Returns one entry per input — `Some(vector)` when embedded, `None` when
+/// it failed — plus whether (and why) a systemic failure stopped all
+/// further embedding. Log lines are prefixed with `context`
+/// (`"incremental_reindex"` or `"full_reindex"`).
+async fn embed_with_fallback(
+    embedding: &dyn EmbeddingBackend,
+    contents: &[String],
+    qualified_names: &[String],
+    context: &str,
+) -> (Vec<Option<Vec<f32>>>, Option<EmbedStop>) {
+    match embedding.embed(contents).await {
+        Ok(v) => (v.into_iter().map(Some).collect(), None),
+        Err(batch_err) if !batch_failure_can_split(&batch_err) => {
+            warn!(
+                error = %batch_err,
+                failed_count = contents.len(),
+                "{context}: systemic batch embed failure; not retrying per-item"
+            );
+            for qualified in qualified_names {
+                warn!(
+                    qualified_name = %qualified,
+                    "{context}: memory not embedded after systemic batch failure"
+                );
+            }
+            (vec![None; contents.len()], Some(EmbedStop::Batch))
+        }
+        Err(batch_err) => {
+            warn!(error = %batch_err, "{context}: batch embed failed; falling back to per-item");
+            let mut vecs: Vec<Option<Vec<f32>>> = Vec::with_capacity(contents.len());
+            let mut stopped: Option<usize> = None;
+            for (i, content) in contents.iter().enumerate() {
+                match embedding.embed(std::slice::from_ref(content)).await {
+                    Ok(mut v) => vecs.push(Some(v.remove(0))),
+                    Err(e) if fallback_failure_stops_retries(&e) => {
+                        warn!(
+                            error = %e,
+                            failed_count = contents.len() - i,
+                            "{context}: systemic per-item embed failure; stopping fallback"
+                        );
+                        for qualified in &qualified_names[i..] {
+                            warn!(
+                                qualified_name = %qualified,
+                                "{context}: memory not embedded after fallback stopped"
+                            );
+                        }
+                        vecs.extend((i..contents.len()).map(|_| None));
+                        stopped = Some(i);
+                        break;
+                    }
+                    Err(e) => {
+                        warn!(
+                            error = %e,
+                            qualified_name = %qualified_names[i],
+                            "{context}: per-item embed failed; skipping"
+                        );
+                        vecs.push(None);
+                    }
+                }
+            }
+            (vecs, stopped.map(EmbedStop::Fallback))
+        }
+    }
+}
+
 /// Re-embed and re-index all memories that changed between two commits.
 ///
 /// Removals are processed first so a name that was deleted and re-added in
@@ -722,67 +851,23 @@ async fn incremental_reindex(
     }
 
     let contents: Vec<String> = to_embed.iter().map(|(_, c)| c.clone()).collect();
-    let vectors = match embedding.embed(&contents).await {
-        Ok(v) => v,
-        Err(batch_err) if !batch_failure_can_split(&batch_err) => {
-            warn!(
-                error = %batch_err,
-                failed_count = to_embed.len(),
-                "incremental_reindex: systemic batch embed failure; not retrying per-item"
-            );
-            for (mref, _) in &to_embed {
-                warn!(
-                    qualified_name = %mref.qualified_path(),
-                    "incremental_reindex: memory not embedded after systemic batch failure"
-                );
-            }
-            stats.errors += to_embed.len();
-            to_embed.clear();
-            Vec::new()
-        }
-        Err(batch_err) => {
-            warn!(error = %batch_err, "incremental_reindex: batch embed failed; falling back to per-item");
-            let mut vecs: Vec<Vec<f32>> = Vec::with_capacity(contents.len());
-            let mut failed: Vec<usize> = Vec::new();
-            for (i, content) in contents.iter().enumerate() {
-                match embedding.embed(std::slice::from_ref(content)).await {
-                    Ok(mut v) => vecs.push(v.remove(0)),
-                    Err(e) if fallback_failure_stops_retries(&e) => {
-                        warn!(
-                            error = %e,
-                            failed_count = contents.len() - i,
-                            "incremental_reindex: systemic per-item embed failure; stopping fallback"
-                        );
-                        for (mref, _) in &to_embed[i..] {
-                            warn!(
-                                qualified_name = %mref.qualified_path(),
-                                "incremental_reindex: memory not embedded after fallback stopped"
-                            );
-                        }
-                        failed.extend(i..contents.len());
-                        stats.errors += contents.len() - i;
-                        break;
-                    }
-                    Err(e) => {
-                        warn!(
-                            error = %e,
-                            qualified_name = %to_embed[i].0.qualified_path(),
-                            "incremental_reindex: per-item embed failed; skipping"
-                        );
-                        failed.push(i);
-                        stats.errors += 1;
-                    }
-                }
-            }
-            // Remove failed items from to_embed in reverse order to preserve indices.
-            for &i in failed.iter().rev() {
-                to_embed.remove(i);
-            }
-            vecs
-        }
-    };
+    let qualified_names: Vec<String> = to_embed
+        .iter()
+        .map(|(mref, _)| mref.qualified_path())
+        .collect();
+    let (vectors, _stop) = embed_with_fallback(
+        embedding,
+        &contents,
+        &qualified_names,
+        "incremental_reindex",
+    )
+    .await;
+    stats.errors += vectors.iter().filter(|v| v.is_none()).count();
 
     for ((mref, _), vector) in to_embed.iter().zip(vectors.iter()) {
+        let Some(vector) = vector else {
+            continue; // failed to embed; the helper already warned
+        };
         let qualified_name = mref.qualified_path();
         let is_update = index.find_by_name(&qualified_name).is_some();
 
@@ -968,7 +1053,7 @@ async fn mirror_pulled_changes(
     new_head: [u8; 20],
 ) -> Result<Option<ReindexStats>, MemoryError> {
     let repo = Arc::clone(&state.repo);
-    let changes = match crate::repo::traced_spawn_blocking(move || {
+    let changes = match crate::spawn::traced_spawn_blocking(move || {
         repo.diff_changed_refs(old_head, new_head)
     })
     .await
@@ -1086,80 +1171,46 @@ pub async fn full_reindex(
         let remaining_after_chunk = items.len() - (chunk_start + chunk.len());
         let mut stop_after_chunk = false;
         let contents: Vec<String> = chunk.iter().map(|(_, c)| c.clone()).collect();
-
-        let vectors = match embedding.embed(&contents).await {
-            Ok(v) => v,
-            Err(batch_err) if !batch_failure_can_split(&batch_err) => {
-                warn!(
-                    error = %batch_err,
-                    failed_count = items.len() - chunk_start,
-                    "full_reindex: systemic batch embed failure; not retrying per-item"
-                );
-                for (mref, _) in &items[chunk_start..] {
+        let qualified_names: Vec<String> = chunk
+            .iter()
+            .map(|(mref, _)| mref.qualified_path())
+            .collect();
+        let (vectors, stop) =
+            embed_with_fallback(embedding, &contents, &qualified_names, "full_reindex").await;
+        stats.errors += vectors.iter().filter(|v| v.is_none()).count();
+        match stop {
+            Some(EmbedStop::Batch) => {
+                for (mref, _) in &items[chunk_start + chunk.len()..] {
                     warn!(
                         qualified_name = %mref.qualified_path(),
                         "full_reindex: memory not embedded after systemic batch failure"
                     );
                 }
-                stats.errors += items.len() - chunk_start;
+                stats.errors += remaining_after_chunk;
                 stop_after_chunk = true;
-                vec![Vec::new(); chunk.len()]
             }
-            Err(batch_err) => {
-                warn!(error = %batch_err, "full_reindex: batch embed failed; falling back to per-item");
-                let mut vecs = Vec::with_capacity(contents.len());
-                for (i, content) in contents.iter().enumerate() {
-                    match embedding.embed(std::slice::from_ref(content)).await {
-                        Ok(mut v) => vecs.push(v.remove(0)),
-                        Err(e) if fallback_failure_stops_retries(&e) => {
-                            warn!(
-                                error = %e,
-                                failed_count = contents.len() - i,
-                                "full_reindex: systemic per-item embed failure; stopping fallback"
-                            );
-                            for (mref, _) in &chunk[i..] {
-                                warn!(
-                                    qualified_name = %mref.qualified_path(),
-                                    "full_reindex: memory not embedded after fallback stopped"
-                                );
-                            }
-                            stats.errors += contents.len() - i;
-                            for (mref, _) in &items[chunk_start + chunk.len()..] {
-                                warn!(
-                                    qualified_name = %mref.qualified_path(),
-                                    "full_reindex: memory not embedded after fallback stopped"
-                                );
-                            }
-                            stats.errors += remaining_after_chunk;
-                            stop_after_chunk = true;
-                            vecs.extend((i..contents.len()).map(|_| Vec::new()));
-                            break;
-                        }
-                        Err(e) => {
-                            warn!(
-                                error = %e,
-                                qualified_name = %chunk[i].0.qualified_path(),
-                                "full_reindex: per-item embed failed; skipping"
-                            );
-                            stats.errors += 1;
-                            vecs.push(Vec::new());
-                        }
-                    }
+            Some(EmbedStop::Fallback(_)) => {
+                for (mref, _) in &items[chunk_start + chunk.len()..] {
+                    warn!(
+                        qualified_name = %mref.qualified_path(),
+                        "full_reindex: memory not embedded after fallback stopped"
+                    );
                 }
-                vecs
+                stats.errors += remaining_after_chunk;
+                stop_after_chunk = true;
             }
-        };
+            None => {}
+        }
 
         debug_assert_eq!(
             vectors.len(),
             chunk.len(),
-            "embed() must return exactly one vector per input"
+            "helper must return one entry per input"
         );
-
         for ((mref, _), vector) in chunk.iter().zip(vectors.iter()) {
-            if vector.is_empty() {
-                continue;
-            }
+            let Some(vector) = vector else {
+                continue; // failed to embed; the helper already warned
+            };
             let qualified_name = mref.qualified_path();
             match index.add(&mref.scope, vector, qualified_name.clone()) {
                 Ok(_) => {
@@ -1355,15 +1406,7 @@ impl MemoryServer {
         _extensions: Extensions,
     ) -> Result<String, ErrorData> {
         let name = MemoryName::new(args.name).map_err(ErrorData::from)?;
-        if args.content.len() > MAX_CONTENT_SIZE {
-            return Err(ErrorData::from(crate::error::MemoryError::InvalidInput {
-                reason: format!(
-                    "content size {} exceeds maximum of {} bytes",
-                    args.content.len(),
-                    MAX_CONTENT_SIZE
-                ),
-            }));
-        }
+        check_content_size(&args.content)?;
         let session_id = STDIO_SESSION_ID;
         let content_size = args.content.len();
         let span = tracing::info_span!(
@@ -1375,7 +1418,7 @@ impl MemoryServer {
         );
         let state = Arc::clone(&self.state);
         (async move {
-            let scope = Scope::parse_or_default(args.scope.as_deref()).map_err(ErrorData::from)?;
+            let scope = parse_scope(args.scope.as_deref())?;
             let metadata = MemoryMetadata::new(scope.clone(), args.tags, args.source);
             let memory = Memory::from_validated(name, args.content, metadata);
 
@@ -1411,23 +1454,18 @@ impl MemoryServer {
                 // The batch is dispatched eagerly (no await point between the
                 // save and the dispatch). Best-effort: a failure flags the
                 // index degraded and repair rebuilds it from git truth.
-                if let Err(e) = unit_state
-                    .lexical
-                    .apply_async(vec![LexicalOp::Upsert(LexicalDoc {
+                mirror_lexical_best_effort(
+                    &unit_state,
+                    vec![LexicalOp::Upsert(LexicalDoc {
                         qualified_name,
                         name: memory.name.as_str().to_string(),
                         content: memory.content.clone(),
-                    })])
-                    .await
-                {
-                    warn!(
-                        name = %memory.name,
-                        error = %e,
-                        "lexical index update failed during remember; keyword search \
-                         degraded until repair completes"
-                    );
-                    spawn_lexical_repair_for_router(&unit_state.router, &unit_state.lexical);
-                }
+                    })],
+                    "remember",
+                    &memory.name,
+                    None,
+                )
+                .await;
                 Ok(memory)
             })
             .await
@@ -1658,9 +1696,7 @@ impl MemoryServer {
         let state = Arc::clone(&self.state);
         (
             async move {
-                let scope = Scope::parse_or_default(args.scope.as_deref()).map_err(
-                    ErrorData::from
-                )?;
+                let scope = parse_scope(args.scope.as_deref())?;
 
                 let start = Instant::now();
 
@@ -1682,14 +1718,14 @@ impl MemoryServer {
                     if let Err(e) = unit_state.index.remove(&scope, &qualified_name) {
                         warn!(name = %unit_name, error = %e, "vector removal failed during forget; stale entry will be skipped at recall");
                     }
-                    if
-                        let Err(e) = unit_state.lexical.apply_async(
-                            vec![LexicalOp::Remove(qualified_name)]
-                        ).await
-                    {
-                        warn!(name = %unit_name, error = %e, "lexical removal failed during forget; keyword search degraded until repair completes");
-                        spawn_lexical_repair_for_router(&unit_state.router, &unit_state.lexical);
-                    }
+                    mirror_lexical_best_effort(
+                        &unit_state,
+                        vec![LexicalOp::Remove(qualified_name)],
+                        "forget",
+                        &unit_name,
+                        None,
+                    )
+                    .await;
                     Ok(())
                 }).await.map_err(ErrorData::from)?;
 
@@ -1732,16 +1768,8 @@ impl MemoryServer {
                 reason: "nothing to update — provide content or tags".into(),
             }));
         }
-        if let Some(ref content) = args.content
-            && content.len() > MAX_CONTENT_SIZE
-        {
-            return Err(ErrorData::from(crate::error::MemoryError::InvalidInput {
-                reason: format!(
-                    "content size {} exceeds maximum of {} bytes",
-                    content.len(),
-                    MAX_CONTENT_SIZE
-                ),
-            }));
+        if let Some(content) = &args.content {
+            check_content_size(content)?;
         }
         let session_id = STDIO_SESSION_ID;
         let content_size = args.content.as_ref().map(|c| c.len()).unwrap_or(0);
@@ -1754,7 +1782,7 @@ impl MemoryServer {
         );
         let state = Arc::clone(&self.state);
         (async move {
-            let scope = Scope::parse_or_default(args.scope.as_deref()).map_err(ErrorData::from)?;
+            let scope = parse_scope(args.scope.as_deref())?;
 
             // Track whether content changed so we can skip re-embedding when only tags changed.
             let content_changed = args.content.is_some();
@@ -1811,23 +1839,19 @@ impl MemoryServer {
                 // between the save and the dispatch. Best-effort: a failure
                 // flags the index degraded and repair rebuilds it from git
                 // truth.
-                if content_changed
-                    && let Err(e) = unit_state
-                        .lexical
-                        .apply_async(vec![LexicalOp::Upsert(LexicalDoc {
+                if content_changed {
+                    mirror_lexical_best_effort(
+                        &unit_state,
+                        vec![LexicalOp::Upsert(LexicalDoc {
                             qualified_name: memory.mem_ref().qualified_path(),
                             name: memory.name.as_str().to_string(),
                             content: memory.content.clone(),
-                        })])
-                        .await
-                {
-                    warn!(
-                        name = %memory.name,
-                        error = %e,
-                        "lexical index update failed during edit; keyword search \
-                         degraded until repair completes"
-                    );
-                    spawn_lexical_repair_for_router(&unit_state.router, &unit_state.lexical);
+                        })],
+                        "edit",
+                        &memory.name,
+                        None,
+                    )
+                    .await;
                 }
                 Ok((memory, timing))
             })
@@ -1891,12 +1915,8 @@ impl MemoryServer {
         let state = Arc::clone(&self.state);
         (
             async move {
-                let from_scope = Scope::parse_or_default(args.from_scope.as_deref()).map_err(
-                    ErrorData::from
-                )?;
-                let to_scope = Scope::parse_or_default(Some(&args.to_scope)).map_err(
-                    ErrorData::from
-                )?;
+                let from_scope = parse_scope(args.from_scope.as_deref())?;
+                let to_scope = parse_scope(Some(&args.to_scope))?;
 
                 // Reject no-op moves (same scope + same name).
                 if from_scope == to_scope && name == new_name {
@@ -1980,27 +2000,21 @@ impl MemoryServer {
                     // 3. Mirror the move in the lexical index (best-effort). One
                     //    batch: destination upsert + source removal share a single
                     //    commit and reader reload on the blocking pool.
-                    if
-                        let Err(e) = unit_state.lexical.apply_async(
-                            vec![
-                                LexicalOp::Upsert(LexicalDoc {
-                                    qualified_name: dest_qualified.clone(),
-                                    name: dest.name.as_str().to_string(),
-                                    content: dest.content.clone(),
-                                }),
-                                LexicalOp::Remove(source_qualified.clone())
-                            ]
-                        ).await
-                    {
-                        warn!(
-                        name = %unit_name,
-                        new_name = %unit_new_name,
-                        error = %e,
-                        "lexical index update failed during move; keyword search degraded \
-                         until repair completes"
-                    );
-                        spawn_lexical_repair_for_router(&unit_state.router, &unit_state.lexical);
-                    }
+                    mirror_lexical_best_effort(
+                        &unit_state,
+                        vec![
+                            LexicalOp::Upsert(LexicalDoc {
+                                qualified_name: dest_qualified.clone(),
+                                name: dest.name.as_str().to_string(),
+                                content: dest.content.clone(),
+                            }),
+                            LexicalOp::Remove(source_qualified.clone())
+                        ],
+                        "move",
+                        &unit_name,
+                        Some(&unit_new_name),
+                    )
+                    .await;
 
                     // 4. Embed the content for the new scope's index entry.
                     let vector = unit_state.embedding.embed_one(&dest.content).await?;
@@ -2145,7 +2159,7 @@ impl MemoryServer {
         );
         let state = Arc::clone(&self.state);
         (async move {
-            let scope = Scope::parse_or_default(args.scope.as_deref()).map_err(ErrorData::from)?;
+            let scope = parse_scope(args.scope.as_deref())?;
 
             let start = Instant::now();
             let memory = state
@@ -2516,7 +2530,7 @@ impl MemoryServer {
                     "recall log is not enabled".to_string(),
                 )));
             }
-            let buckets = crate::repo::traced_spawn_blocking(move || {
+            let buckets = crate::spawn::traced_spawn_blocking(move || {
                 // Safety: checked above that recall_log is Some.
                 state
                     .recall_log

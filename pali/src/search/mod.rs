@@ -13,12 +13,8 @@ use std::{collections::HashSet, sync::Arc};
 use tracing::{Instrument, info, warn};
 
 use crate::{
-    embedding::EmbeddingBackend,
-    error::MemoryError,
-    index::VectorStore,
-    repo::{MemoryRepo, traced_spawn_blocking},
-    repo_router::RepoRouter,
-    types::ScopeFilter,
+    embedding::EmbeddingBackend, error::MemoryError, index::VectorStore, repo::MemoryRepo,
+    repo_router::RepoRouter, spawn::traced_spawn_blocking, types::ScopeFilter,
 };
 
 /// BM25 keyword index (Tantivy, in-RAM).

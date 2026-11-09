@@ -10,6 +10,7 @@ use tracing::{info, warn};
 use crate::{
     error::MemoryError,
     health::SubsystemReporter,
+    spawn::traced_spawn_blocking,
     types::{Memory, MemoryMetadata, MemoryName, MemoryRef, Scope},
 };
 
@@ -220,25 +221,6 @@ fn build_auth_callbacks() -> git2::RemoteCallbacks<'static> {
         git2::Cred::default()
     });
     callbacks
-}
-
-/// Spawn a blocking task with the caller's `tracing::Dispatch` propagated.
-///
-/// Blocking-pool threads do not inherit the caller's thread-local dispatch,
-/// so `Span::current()`, events, and `Span::record()` are silently dropped
-/// unless the dispatch is explicitly re-installed. This wrapper captures the
-/// current dispatch and sets it as the thread-local default inside the closure.
-pub(crate) fn traced_spawn_blocking<F, T>(f: F) -> tokio::task::JoinHandle<T>
-where
-    F: FnOnce() -> T + Send + 'static,
-    T: Send + 'static,
-{
-    let dispatch = tracing::dispatcher::get_default(|d| d.clone());
-    #[allow(clippy::disallowed_methods)]
-    tokio::task::spawn_blocking(move || {
-        let _guard = tracing::dispatcher::set_default(&dispatch);
-        f()
-    })
 }
 
 /// The outcome of a `pull()` operation.
@@ -583,7 +565,8 @@ fn object_content(repo: &git2::Repository, id: git2::Oid) -> Result<Option<Vec<u
 
 /// True for `.md` files inside the namespace directories the store owns.
 fn is_memory_path(path: &str) -> bool {
-    path.ends_with(".md") && (path.starts_with("global/") || path.starts_with("projects/"))
+    path.ends_with(".md")
+        && (path.starts_with(Scope::ROOT_PREFIX) || path.starts_with(Scope::PROJECTS_PREFIX))
 }
 
 impl MemoryRepo {
@@ -956,11 +939,11 @@ impl MemoryRepo {
                     None => {
                         // Walk both global/ and projects/* (on-disk namespace directories)
                         let mut dirs = Vec::new();
-                        let global = root.join("global");
+                        let global = root.join(Scope::ROOT_DIR);
                         if global.exists() {
                             dirs.push(global);
                         }
-                        let projects = root.join("projects");
+                        let projects = root.join(Scope::PROJECTS_DIR);
                         if projects.exists() {
                             for entry in std::fs::read_dir(&projects)? {
                                 let entry = entry?;

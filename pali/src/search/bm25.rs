@@ -42,7 +42,7 @@ use tracing::{debug, warn};
 
 use crate::{
     error::MemoryError,
-    repo::traced_spawn_blocking,
+    spawn::traced_spawn_blocking,
     types::{ScopeFilter, parse_qualified_name},
 };
 
