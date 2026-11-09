@@ -109,6 +109,19 @@ async fn mirror_lexical_best_effort(
     }
 }
 
+/// Run a [`RecallLog`] operation on the blocking pool with tracing
+/// propagation, mapping a join failure to an internal error.
+async fn run_recall_log<T, F>(f: F) -> Result<T, ErrorData>
+where
+    F: FnOnce() -> Result<T, MemoryError> + Send + 'static,
+    T: Send + 'static,
+{
+    traced_spawn_blocking(f)
+        .await
+        .map_err(|e| ErrorData::from(MemoryError::Internal(format!("spawn_blocking: {e}"))))?
+        .map_err(ErrorData::from)
+}
+
 /// MCP server implementation.
 ///
 /// Each tool method is an async handler that calls into the backing subsystems
@@ -2336,7 +2349,7 @@ impl MemoryServer {
                 let verdict = args.verdict.as_str();
                 let application = args.application.clone();
                 let confidence = args.confidence.clone();
-                traced_spawn_blocking(move || {
+                run_recall_log(move || {
                     log.mark_applied(
                         &recall_id,
                         &memory,
@@ -2346,11 +2359,7 @@ impl MemoryServer {
                         &confidence,
                     )
                 })
-                .await
-                .map_err(|e| {
-                    ErrorData::from(MemoryError::Internal(format!("spawn_blocking: {e}")))
-                })?
-                .map_err(ErrorData::from)?
+                .await?
             } else {
                 warn!("mark_applied called but recall log is not enabled");
                 0
@@ -2453,7 +2462,7 @@ impl MemoryServer {
                         })
                         .collect();
 
-                    let per_entry = traced_spawn_blocking(move || {
+                    let per_entry = run_recall_log(move || {
                         let refs: Vec<BatchVerdict<'_>> = owned
                             .iter()
                             .map(|o| BatchVerdict {
@@ -2465,11 +2474,8 @@ impl MemoryServer {
                             })
                             .collect();
                         log.batch_mark_applied(sid, &refs)
-                    }).await
-                        .map_err(|e| {
-                            ErrorData::from(MemoryError::Internal(format!("spawn_blocking: {e}")))
-                        })?
-                        .map_err(ErrorData::from)?;
+                    })
+                    .await?;
 
                     let total: u64 = per_entry.iter().sum();
 
@@ -2530,7 +2536,7 @@ impl MemoryServer {
                     "recall log is not enabled".to_string(),
                 )));
             }
-            let buckets = crate::spawn::traced_spawn_blocking(move || {
+            let buckets = run_recall_log(move || {
                 // Safety: checked above that recall_log is Some.
                 state
                     .recall_log
@@ -2538,9 +2544,7 @@ impl MemoryServer {
                     .expect("recall_log is Some — checked above")
                     .recall_stats()
             })
-            .await
-            .map_err(|e| ErrorData::from(MemoryError::Internal(format!("spawn_blocking: {e}"))))?
-            .map_err(ErrorData::from)?;
+            .await?;
 
             let json_buckets: Vec<serde_json::Value> = buckets
                 .iter()
